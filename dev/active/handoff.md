@@ -1,80 +1,81 @@
-# BÖRAK Handoff Notes
+# Handoff Document - BÖRAK Session 2026-01-25
 
-**Date**: 2026-01-24 23:17 UTC
-**Status**: All changes committed and pushed
-
-## Git Status
-
-```
-2338276 fix(ui): force sidebar visible and hide broken icons  ← PUSHED
-804a35f style(ui): apply cypherpunk terminal aesthetic
-03865c7 feat(ui): add image upload and canvas preview
-c1e0d48 refactor(ui): Marie Kondo the BÖRAK interface
-ebd6aef Initial commit: Ollama Chat Service
-```
-
-✅ All changes committed and pushed to GitHub.
-
-## Production State
-
-- **URL**: http://45.159.230.42:8501
-- **Status**: Running and healthy
-- **Sidebar**: Now visible with model selector
-
-## What Works
-
-1. ✅ Authentication (login/register)
-2. ✅ Sidebar with model selection
-3. ✅ Vision model indicator ("VISION CAPABLE")
-4. ✅ File upload for images
-5. ✅ Chat interface
-6. ✅ Canvas output preview
-7. ✅ Vision API (tested via CLI - both models work)
-
-## What Needs Testing
-
-- [ ] Vision in browser (upload image → ask question → get response)
-- [ ] Code block extraction in Canvas
-- [ ] Download buttons
-
-## Known Issues
-
-1. **No streaming** - Responses wait for full completion (`stream: False`)
-2. **No chat persistence** - Messages lost on refresh
-3. **VPS disk 97% full** - May need cleanup for more models
-
-## Quick Reference
-
-| Item | Value |
-|------|-------|
-| App URL | http://45.159.230.42:8501 |
-| GitHub | https://github.com/zeidalqadri/ollama-chat-service |
-| VPS SSH | `ssh root@45.159.230.42 -p 1511` |
-| Health Check | `curl -s http://45.159.230.42:8501/_stcore/health` |
-
-## Resume Commands
+## Quick Resume
 
 ```bash
-# Navigate to project
-cd ~/projects/ollama-chat-service
-
-# Check deployment
+# Verify deployment
 curl -s http://45.159.230.42:8501/_stcore/health
 
-# Restart if needed
-ssh -p 1511 root@45.159.230.42 "fuser -k 8501/tcp; sleep 2; cd /opt/ollama-ui && source venv/bin/activate && nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true &"
+# SSH to VPS
+ssh -p 1511 root@45.159.230.42
 
 # View logs
 ssh -p 1511 root@45.159.230.42 "tail -50 /tmp/streamlit.log"
-
-# Test vision API
-ssh -p 1511 root@45.159.230.42 "ollama run qwen3-vl:4b 'describe this image' --images /tmp/test.png"
 ```
 
-## Session Summary
+## What Was Built
 
-This session:
-1. Applied cypherpunk terminal aesthetic (green accents, corner brackets)
-2. Fixed sidebar visibility issues (CSS force show, hide broken icons)
-3. Tested vision models via API (both work)
-4. Fixed various Streamlit UI quirks (tooltips, collapse buttons)
+| Feature | Implementation | Files |
+|---------|---------------|-------|
+| Streaming | `chat_with_ollama_stream()` generator | app.py:299-320 |
+| ChromaDB | `chroma_save_message()`, `chroma_load_history()` | app.py:330-400 |
+| Stream cache | `save_stream_chunk()`, `load_stream_cache()` | app.py:402-440 |
+| UI lock | CSS `.streaming-active` class + JS | app.py:145-165 |
+| Panel toggle | Pure JS `togglePanel()` | app.py:260-280 |
+
+## Current Production State
+
+- **Commit**: f3766c8 (pushed to GitHub)
+- **Deployed**: Yes, running on VPS
+- **Health**: OK
+
+## Pending Work
+
+1. **Test vision models** - Upload image, try llava or moondream
+2. **Add STOP button** - Cancel long generations via Ollama API
+3. **Test crash recovery** - Refresh mid-stream, verify recovery
+
+## Critical Knowledge
+
+### SSH Port
+```
+Port 1511 (NOT 22!)
+```
+
+### Service Restart
+```bash
+ssh -p 1511 root@45.159.230.42 "pkill streamlit; fuser -k 8501/tcp; cd /opt/ollama-ui && source venv/bin/activate && nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true > /tmp/streamlit.log 2>&1 &"
+```
+
+### Deploy Single File
+```bash
+scp -P 1511 app.py root@45.159.230.42:/opt/ollama-ui/app.py
+```
+
+### Key Paths on VPS
+- App: `/opt/ollama-ui/`
+- Chroma DB: `/opt/ollama-ui/chroma_db/`
+- Stream cache: `/opt/ollama-ui/stream_cache/`
+- Users DB: `/opt/ollama-ui/users.db`
+- Logs: `/tmp/streamlit.log`
+
+## Architecture Summary
+
+```
+User Browser
+    ↓
+Streamlit (port 8501)
+    ↓
+app.py
+    ├── SQLite (users.db) - auth, fallback chat
+    ├── ChromaDB (chroma_db/) - vector chat storage
+    ├── Stream cache (stream_cache/) - crash recovery
+    └── Ollama API (localhost:11434) - LLM inference
+```
+
+## Session Statistics
+
+- Duration: ~2 hours
+- Lines changed: 351 added, 22 removed
+- Features added: 5 major (streaming, ChromaDB, cache, UI lock, JS toggle)
+- Bugs fixed: 3 (rerun loop, panel interrupt, response loss)
