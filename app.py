@@ -15,105 +15,205 @@ DB_PATH = os.path.join(DATA_DIR, "users.db")
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "qwen3-coder:30b")
 VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", "bakllava", "llava-phi", "granite3.2-vision", "minicpm-v"]
 
-# Theme
+# Theme - Cypherpunk Terminal Aesthetic
 CUSTOM_CSS = """
 <style>
     :root {
-        --bg: #0d0d0d;
-        --bg-card: #141414;
-        --bg-input: #1a1a1a;
-        --bg-canvas: #0a0a0a;
-        --text: #e8e8e8;
-        --muted: #808080;
-        --accent: #a8b5c4;
-        --success: #98c4a8;
-        --error: #c4a098;
-        --border: #2a2a2a;
-        --font: 'SF Mono', 'Consolas', monospace;
+        --bg: #0a0a0a;
+        --bg-card: #0d0d0d;
+        --bg-input: #111111;
+        --bg-canvas: #080808;
+        --text: #c0c0c0;
+        --muted: #606060;
+        --accent: #00cc66;
+        --accent-dim: #006633;
+        --cyan: #00cccc;
+        --amber: #cc9900;
+        --error: #cc3333;
+        --border: #1a1a1a;
+        --border-active: #333333;
+        --font: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', monospace;
     }
 
-    .stApp { background: var(--bg); font-family: var(--font); }
-    #MainMenu, footer, header, .stDeployButton { display: none; }
-    * { font-family: var(--font) !important; }
+    /* Base reset */
+    .stApp { background: var(--bg); font-family: var(--font); color: var(--text); }
+    #MainMenu, footer, header, .stDeployButton { display: none !important; }
+    * { font-family: var(--font) !important; box-sizing: border-box; }
 
-    /* Form container */
-    [data-testid="stForm"] { background: var(--bg-card); border: 1px solid var(--border); padding: 2rem; max-width: 400px; margin: 0 auto; }
+    /* Form container with corner brackets */
+    [data-testid="stForm"] {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        padding: 2rem;
+        max-width: 400px;
+        margin: 0 auto;
+        position: relative;
+    }
+    [data-testid="stForm"]::before { content: '┌'; position: absolute; top: -1px; left: -1px; color: var(--accent); font-size: 1rem; }
+    [data-testid="stForm"]::after { content: '┘'; position: absolute; bottom: -1px; right: -1px; color: var(--accent); font-size: 1rem; }
 
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] { background: transparent; border-bottom: 1px solid var(--border); }
-    .stTabs [data-baseweb="tab"] { background: transparent; color: var(--muted); border: none; padding: 0.75rem 2rem; font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase; }
-    .stTabs [aria-selected="true"] { color: var(--accent) !important; border-bottom: 2px solid var(--accent) !important; }
+    /* Tabs - terminal style */
+    .stTabs [data-baseweb="tab-list"] { background: transparent; border-bottom: 1px solid var(--border); gap: 0; }
+    .stTabs [data-baseweb="tab"] { background: transparent; color: var(--muted); border: none; padding: 0.5rem 1.5rem; font-size: 0.8rem; letter-spacing: 0.15em; text-transform: uppercase; }
+    .stTabs [data-baseweb="tab"]:hover { color: var(--text); }
+    .stTabs [aria-selected="true"] { color: var(--accent) !important; border-bottom: 1px solid var(--accent) !important; background: var(--bg-input) !important; }
     .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
 
-    /* Inputs */
-    .stTextInput > div > div { background: var(--bg-input) !important; border: 1px solid var(--border) !important; border-left: 2px solid var(--muted) !important; border-radius: 0 !important; }
-    .stTextInput > div > div:focus-within { border-left-color: var(--accent) !important; outline: 2px solid var(--accent) !important; outline-offset: 1px !important; }
-    .stTextInput input { color: var(--text) !important; background: transparent !important; }
-    .stTextInput input::placeholder { color: var(--muted) !important; }
-    .stTextInput label { color: var(--muted) !important; font-size: 0.75rem !important; text-transform: uppercase !important; letter-spacing: 0.1em !important; }
+    /* Hide form submit hint */
+    .stTextInput div[data-baseweb="tooltip"] { display: none !important; }
+    div[data-baseweb="tooltip"] { display: none !important; }
+    [data-testid="InputInstructions"] { display: none !important; }
 
-    /* Buttons */
-    .stButton > button, .stFormSubmitButton > button { background: transparent !important; border: 1px solid var(--accent) !important; border-radius: 0 !important; color: var(--accent) !important; font-size: 0.8rem !important; letter-spacing: 0.1em !important; text-transform: uppercase !important; padding: 0.75rem 2rem !important; }
-    .stButton > button:hover, .stFormSubmitButton > button:hover { background: var(--accent) !important; color: var(--bg) !important; }
-    .stButton > button:focus, .stFormSubmitButton > button:focus { outline: 2px solid var(--accent) !important; outline-offset: 2px !important; }
+    /* Inputs - command prompt style */
+    .stTextInput > div > div {
+        background: var(--bg-input) !important;
+        border: 1px solid var(--border) !important;
+        border-left: 2px solid var(--accent-dim) !important;
+        border-radius: 0 !important;
+    }
+    .stTextInput > div > div:focus-within {
+        border-left-color: var(--accent) !important;
+        box-shadow: 0 0 8px rgba(0,204,102,0.15) !important;
+    }
+    .stTextInput input { color: var(--text) !important; background: transparent !important; font-size: 0.9rem !important; }
+    .stTextInput input::placeholder { color: var(--muted) !important; font-style: normal !important; }
+    .stTextInput label { color: var(--muted) !important; font-size: 0.7rem !important; text-transform: uppercase !important; letter-spacing: 0.15em !important; }
+
+    /* Buttons - bordered, not filled */
+    .stButton > button, .stFormSubmitButton > button {
+        background: transparent !important;
+        border: 1px solid var(--accent) !important;
+        border-radius: 0 !important;
+        color: var(--accent) !important;
+        font-size: 0.75rem !important;
+        letter-spacing: 0.15em !important;
+        text-transform: uppercase !important;
+        padding: 0.6rem 1.5rem !important;
+        transition: all 0.15s ease !important;
+    }
+    .stButton > button:hover, .stFormSubmitButton > button:hover {
+        background: var(--accent) !important;
+        color: var(--bg) !important;
+        box-shadow: 0 0 12px rgba(0,204,102,0.3) !important;
+    }
+    .stButton > button:focus, .stFormSubmitButton > button:focus { outline: 1px solid var(--accent) !important; outline-offset: 2px !important; }
     .stFormSubmitButton > button { width: 100%; margin-top: 1rem; }
 
-    /* Sidebar */
+    /* Sidebar - control panel */
     [data-testid="stSidebar"] { background: var(--bg-card) !important; border-right: 1px solid var(--border) !important; }
-    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] { color: var(--muted) !important; }
-    [data-testid="stSidebar"] .stSelectbox > div > div, [data-testid="stSidebar"] [data-baseweb="select"] > div { background: var(--bg-input) !important; border: 1px solid var(--border) !important; border-radius: 0 !important; }
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] { color: var(--muted) !important; font-size: 0.7rem !important; letter-spacing: 0.1em !important; }
+    [data-testid="stSidebar"] .stSelectbox > div > div,
+    [data-testid="stSidebar"] [data-baseweb="select"] > div {
+        background: var(--bg-input) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 0 !important;
+        color: var(--text) !important;
+    }
 
     /* File uploader */
-    [data-testid="stFileUploader"] { border: 1px dashed var(--border) !important; border-radius: 0 !important; padding: 1rem !important; background: var(--bg-input) !important; }
-    [data-testid="stFileUploader"]:hover { border-color: var(--accent) !important; }
-    [data-testid="stFileUploader"] label { color: var(--muted) !important; font-size: 0.75rem !important; }
-    [data-testid="stFileUploader"] button { background: var(--accent) !important; color: var(--bg) !important; border-radius: 0 !important; }
+    [data-testid="stFileUploader"] {
+        border: 1px dashed var(--border) !important;
+        border-radius: 0 !important;
+        padding: 0.75rem !important;
+        background: var(--bg-input) !important;
+    }
+    [data-testid="stFileUploader"]:hover { border-color: var(--accent-dim) !important; }
+    [data-testid="stFileUploader"] label { color: var(--muted) !important; font-size: 0.7rem !important; }
+    [data-testid="stFileUploader"] button { background: var(--accent-dim) !important; color: var(--text) !important; border-radius: 0 !important; border: none !important; }
+    [data-testid="stFileUploader"] button:hover { background: var(--accent) !important; color: var(--bg) !important; }
 
-    /* Chat */
-    [data-testid="stChatMessage"] { background: var(--bg-card) !important; border: 1px solid var(--border) !important; border-radius: 0 !important; padding: 1rem !important; margin-bottom: 0.5rem !important; }
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) { border-left: 2px solid var(--accent) !important; }
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) { border-left: 2px solid var(--muted) !important; background: var(--bg-input) !important; }
-    [data-testid="stChatInput"] textarea { background: var(--bg-input) !important; color: var(--text) !important; border: 1px solid var(--border) !important; border-radius: 0 !important; }
-    [data-testid="stChatInput"] textarea:focus { border-color: var(--accent) !important; }
-    [data-testid="stChatInput"] button { background: var(--accent) !important; color: var(--bg) !important; border-radius: 0 !important; }
+    /* Chat messages */
+    [data-testid="stChatMessage"] {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 0 !important;
+        padding: 1rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+        border-left: 2px solid var(--cyan) !important;
+    }
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
+        border-left: 2px solid var(--accent-dim) !important;
+        background: var(--bg-input) !important;
+    }
 
-    /* Canvas/Preview area */
-    .preview-canvas { background: var(--bg-canvas); border: 1px solid var(--border); border-radius: 0; padding: 1rem; margin: 1rem 0; min-height: 200px; }
-    .preview-header { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 0.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
-    .preview-image { max-width: 100%; border: 1px solid var(--border); }
-    .preview-code { background: var(--bg-canvas) !important; border-left: 2px solid var(--accent) !important; }
+    /* Chat input */
+    [data-testid="stChatInput"] textarea {
+        background: var(--bg-input) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 0 !important;
+        font-size: 0.9rem !important;
+    }
+    [data-testid="stChatInput"] textarea:focus {
+        border-color: var(--accent-dim) !important;
+        box-shadow: 0 0 8px rgba(0,204,102,0.1) !important;
+    }
+    [data-testid="stChatInput"] button {
+        background: var(--accent) !important;
+        color: var(--bg) !important;
+        border-radius: 0 !important;
+    }
 
-    /* Expander */
-    [data-testid="stExpander"] { background: var(--bg-card) !important; border: 1px solid var(--border) !important; border-radius: 0 !important; }
-    [data-testid="stExpander"] summary { color: var(--muted) !important; }
+    /* Expander - code blocks */
+    [data-testid="stExpander"] {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 0 !important;
+    }
+    [data-testid="stExpander"] summary { color: var(--cyan) !important; font-size: 0.8rem !important; }
+    [data-testid="stExpander"] summary:hover { color: var(--accent) !important; }
 
-    /* Alerts */
-    .stSuccess { background: rgba(152,196,168,0.1) !important; border-left: 3px solid var(--success) !important; color: var(--success) !important; border-radius: 0 !important; }
-    .stError { background: rgba(196,160,152,0.1) !important; border-left: 3px solid var(--error) !important; color: var(--error) !important; border-radius: 0 !important; }
-    .stWarning { background: rgba(196,184,152,0.1) !important; border-left: 3px solid #c4b898 !important; color: #c4b898 !important; border-radius: 0 !important; }
+    /* Alerts - status messages */
+    .stSuccess { background: rgba(0,204,102,0.05) !important; border: 1px solid var(--accent-dim) !important; border-left: 3px solid var(--accent) !important; color: var(--accent) !important; border-radius: 0 !important; }
+    .stError { background: rgba(204,51,51,0.05) !important; border: 1px solid #661a1a !important; border-left: 3px solid var(--error) !important; color: var(--error) !important; border-radius: 0 !important; }
+    .stWarning { background: rgba(204,153,0,0.05) !important; border: 1px solid #664d00 !important; border-left: 3px solid var(--amber) !important; color: var(--amber) !important; border-radius: 0 !important; }
+    .stInfo { background: rgba(0,204,204,0.05) !important; border: 1px solid #006666 !important; border-left: 3px solid var(--cyan) !important; color: var(--cyan) !important; border-radius: 0 !important; }
 
-    /* Code */
-    pre { background: var(--bg-canvas) !important; border-left: 2px solid var(--accent) !important; border-radius: 0 !important; padding: 1rem !important; }
+    /* Code blocks */
+    pre {
+        background: var(--bg-canvas) !important;
+        border: 1px solid var(--border) !important;
+        border-left: 2px solid var(--accent) !important;
+        border-radius: 0 !important;
+        padding: 1rem !important;
+    }
     code { color: var(--accent) !important; }
 
     /* Scrollbar */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: var(--bg-card); }
-    ::-webkit-scrollbar-thumb { background: var(--border); }
-    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border-active); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
 
     /* Links */
-    a { color: var(--accent) !important; text-decoration: none !important; }
-    a:hover { opacity: 0.8; }
+    a { color: var(--cyan) !important; text-decoration: none !important; }
+    a:hover { color: var(--accent) !important; }
 
     /* Spinner */
     .stSpinner > div > div { border-top-color: var(--accent) !important; }
 
-    /* Image in chat */
-    .chat-image { max-width: 300px; border: 1px solid var(--border); margin: 0.5rem 0; }
-
     /* Download button */
-    .stDownloadButton > button { background: var(--bg-input) !important; border: 1px solid var(--accent) !important; }
+    .stDownloadButton > button {
+        background: var(--bg-input) !important;
+        border: 1px solid var(--accent-dim) !important;
+        color: var(--accent) !important;
+    }
+    .stDownloadButton > button:hover {
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 8px rgba(0,204,102,0.2) !important;
+    }
+
+    /* Image preview */
+    [data-testid="stImage"] img { border: 1px solid var(--border) !important; }
+
+    /* Horizontal rule */
+    hr { border-color: var(--border) !important; margin: 1rem 0 !important; }
+
+    /* Status indicator glow */
+    .status-online { color: var(--accent); text-shadow: 0 0 6px var(--accent); }
+    .status-vision { color: var(--cyan); text-shadow: 0 0 6px var(--cyan); }
 </style>
 """
 
@@ -215,7 +315,7 @@ def detect_output_type(text):
 # Init
 init_db()
 
-st.set_page_config(page_title="BÖRAK", page_icon="", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="BÖRAK", page_icon="", layout="wide", initial_sidebar_state="expanded")
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # Session state
@@ -236,8 +336,9 @@ if not st.session_state.authenticated:
     with col2:
         st.markdown(
             '<div style="text-align:center;margin:4rem 0 3rem">'
-            '<h1 style="font-weight:200;letter-spacing:0.3em;color:#e8e8e8">BÖRAK</h1>'
-            '<p style="color:#808080;font-size:0.75rem;letter-spacing:0.2em">LOCAL AI CHAT</p>'
+            '<p style="color:#006633;font-size:0.7rem;letter-spacing:0.3em;margin-bottom:1rem">[ SYSTEM ONLINE ]</p>'
+            '<h1 style="font-weight:300;letter-spacing:0.4em;color:#c0c0c0;font-size:2rem;margin:0">BÖRAK</h1>'
+            '<p style="color:#606060;font-size:0.7rem;letter-spacing:0.2em;margin-top:0.5rem">LOCAL INFERENCE TERMINAL</p>'
             '</div>',
             unsafe_allow_html=True,
         )
@@ -273,53 +374,67 @@ if not st.session_state.authenticated:
                     else:
                         success, msg = register_user(new_username, new_password)
                         st.success("Account created. Login now.") if success else st.error(msg)
-        st.markdown('<p style="text-align:center;margin-top:3rem;color:#808080;font-size:0.75rem">SECURE LOCAL INFERENCE</p>', unsafe_allow_html=True)
+        st.markdown('<p style="text-align:center;margin-top:3rem;color:#606060;font-size:0.65rem;letter-spacing:0.15em">◉ E2E LOCAL · NO TELEMETRY · YOUR DATA</p>', unsafe_allow_html=True)
 
 # Chat
 else:
-    # Sidebar
+    # Sidebar - Control Panel
     with st.sidebar:
-        st.markdown(f'<p style="color:#808080;font-size:0.75rem;margin:0">USER</p><p style="color:#a8b5c4;margin:0.25rem 0 1rem">{st.session_state.username}</p>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="border-bottom:1px solid #1a1a1a;padding-bottom:1rem;margin-bottom:1rem">'
+            f'<p style="color:#606060;font-size:0.65rem;letter-spacing:0.15em;margin:0">┌─ USER</p>'
+            f'<p style="color:#00cc66;font-size:0.85rem;margin:0.25rem 0 0 0;font-weight:500">> {st.session_state.username}</p>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
 
+        st.markdown('<p style="color:#606060;font-size:0.65rem;letter-spacing:0.15em;margin-bottom:0.5rem">┌─ MODEL</p>', unsafe_allow_html=True)
         models = get_available_models()
         selected_model = st.selectbox("Model", models, label_visibility="collapsed")
 
-        # Show vision badge
+        # Vision capability indicator
         if is_vision_model(selected_model):
-            st.markdown('<p style="color:#98c4a8;font-size:0.7rem;margin:0.5rem 0">◉ VISION ENABLED</p>', unsafe_allow_html=True)
+            st.markdown('<p style="color:#00cccc;font-size:0.7rem;margin:0.5rem 0" class="status-vision">◉ VISION CAPABLE</p>', unsafe_allow_html=True)
 
-        st.markdown('<p style="color:#808080;font-size:0.7rem;margin:1rem 0 0.5rem;letter-spacing:0.1em">ATTACH</p>', unsafe_allow_html=True)
+        st.markdown('<p style="color:#606060;font-size:0.65rem;letter-spacing:0.15em;margin:1.5rem 0 0.5rem">┌─ ATTACH</p>', unsafe_allow_html=True)
         uploaded_file = st.file_uploader("", type=["png", "jpg", "jpeg", "gif", "webp"], label_visibility="collapsed", key="file_upload")
 
         if uploaded_file:
             st.session_state.uploaded_images = [encode_image(uploaded_file.read())]
             uploaded_file.seek(0)
-            st.image(uploaded_file, width=150)
-            if st.button("CLEAR IMAGE", use_container_width=True):
+            st.image(uploaded_file, width=140)
+            if st.button("× REMOVE", use_container_width=True):
                 st.session_state.uploaded_images = []
                 st.rerun()
 
-        st.markdown("<hr style='border-color:#2a2a2a;margin:1rem 0'>", unsafe_allow_html=True)
+        st.markdown("<hr>", unsafe_allow_html=True)
 
+        st.markdown('<p style="color:#606060;font-size:0.65rem;letter-spacing:0.15em;margin-bottom:0.5rem">┌─ ACTIONS</p>', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         if c1.button("CLEAR", use_container_width=True):
             st.session_state.messages = []
             st.session_state.uploaded_images = []
             st.session_state.last_output = None
             st.rerun()
-        if c2.button("LOGOUT", use_container_width=True):
+        if c2.button("EXIT", use_container_width=True):
             for k in ["authenticated", "user_id", "username", "messages", "uploaded_images", "last_output"]:
                 st.session_state[k] = None if k not in ["messages", "uploaded_images"] else []
             st.session_state.authenticated = False
             st.rerun()
 
-        st.markdown('<p style="color:#808080;font-size:0.75rem;position:fixed;bottom:1rem"><span style="color:#98c4a8">●</span> CONNECTED</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<div style="position:fixed;bottom:1rem;left:1rem">'
+            '<p style="color:#006633;font-size:0.7rem;letter-spacing:0.1em" class="status-online">● CONNECTED</p>'
+            '<p style="color:#606060;font-size:0.6rem;margin-top:0.25rem">LOCAL · SECURE</p>'
+            '</div>',
+            unsafe_allow_html=True
+        )
 
     # Main area - two columns: chat and canvas
     chat_col, canvas_col = st.columns([3, 2])
 
     with chat_col:
-        st.markdown('<h1 style="font-weight:200;letter-spacing:0.2em;font-size:1.25rem;border-bottom:1px solid #2a2a2a;padding-bottom:1rem;margin-bottom:1rem">CHAT</h1>', unsafe_allow_html=True)
+        st.markdown('<p style="color:#606060;font-size:0.7rem;letter-spacing:0.15em;border-bottom:1px solid #1a1a1a;padding-bottom:0.75rem;margin-bottom:1rem">[ TERMINAL ]</p>', unsafe_allow_html=True)
 
         # Chat history
         chat_container = st.container()
@@ -328,7 +443,7 @@ else:
                 with st.chat_message(msg["role"]):
                     # Show attached image if present
                     if msg.get("has_image"):
-                        st.markdown('<span style="color:#98c4a8;font-size:0.7rem">◉ IMAGE ATTACHED</span>', unsafe_allow_html=True)
+                        st.markdown('<span style="color:#00cccc;font-size:0.65rem;letter-spacing:0.1em">◎ IMAGE ATTACHED</span>', unsafe_allow_html=True)
                     st.markdown(msg["content"])
 
         # Chat input
@@ -341,7 +456,7 @@ else:
             with chat_container:
                 with st.chat_message("user"):
                     if has_image:
-                        st.markdown('<span style="color:#98c4a8;font-size:0.7rem">◉ IMAGE ATTACHED</span>', unsafe_allow_html=True)
+                        st.markdown('<span style="color:#00cccc;font-size:0.65rem;letter-spacing:0.1em">◎ IMAGE ATTACHED</span>', unsafe_allow_html=True)
                     st.markdown(prompt)
 
             # Get response
@@ -362,7 +477,7 @@ else:
             st.rerun()
 
     with canvas_col:
-        st.markdown('<h1 style="font-weight:200;letter-spacing:0.2em;font-size:1.25rem;border-bottom:1px solid #2a2a2a;padding-bottom:1rem;margin-bottom:1rem">CANVAS</h1>', unsafe_allow_html=True)
+        st.markdown('<p style="color:#606060;font-size:0.7rem;letter-spacing:0.15em;border-bottom:1px solid #1a1a1a;padding-bottom:0.75rem;margin-bottom:1rem">[ OUTPUT ]</p>', unsafe_allow_html=True)
 
         if st.session_state.last_output:
             output = st.session_state.last_output
@@ -371,33 +486,33 @@ else:
             # Code blocks preview
             code_blocks = extract_code_blocks(output)
             if code_blocks:
-                st.markdown('<p style="color:#808080;font-size:0.7rem;letter-spacing:0.1em;margin-bottom:0.5rem">CODE OUTPUT</p>', unsafe_allow_html=True)
+                st.markdown('<p style="color:#00cccc;font-size:0.65rem;letter-spacing:0.15em;margin-bottom:0.5rem">├─ CODE EXTRACTED</p>', unsafe_allow_html=True)
                 for i, (lang, code) in enumerate(code_blocks):
-                    with st.expander(f"{lang.upper()} [{i+1}]", expanded=i==0):
+                    with st.expander(f"[{i+1}] {lang.upper()}", expanded=i==0):
                         st.code(code, language=lang if lang != 'text' else None)
-                        # Download button
                         ext = {'python': 'py', 'javascript': 'js', 'typescript': 'ts', 'html': 'html', 'css': 'css', 'json': 'json', 'yaml': 'yaml', 'markdown': 'md'}.get(lang.lower(), 'txt')
-                        st.download_button(f"DOWNLOAD", code, file_name=f"output_{i+1}.{ext}", mime="text/plain", use_container_width=True)
+                        st.download_button(f"↓ EXPORT .{ext.upper()}", code, file_name=f"output_{i+1}.{ext}", mime="text/plain", use_container_width=True)
 
             # Raw text preview
             elif output_type == 'text':
-                st.markdown('<p style="color:#808080;font-size:0.7rem;letter-spacing:0.1em;margin-bottom:0.5rem">TEXT OUTPUT</p>', unsafe_allow_html=True)
+                st.markdown('<p style="color:#00cccc;font-size:0.65rem;letter-spacing:0.15em;margin-bottom:0.5rem">├─ TEXT OUTPUT</p>', unsafe_allow_html=True)
                 with st.container():
-                    st.markdown(f'<div style="background:#0a0a0a;border:1px solid #2a2a2a;padding:1rem;max-height:400px;overflow-y:auto">{output}</div>', unsafe_allow_html=True)
-                st.download_button("DOWNLOAD", output, file_name="output.txt", mime="text/plain", use_container_width=True)
+                    st.markdown(f'<div style="background:#080808;border:1px solid #1a1a1a;border-left:2px solid #006633;padding:1rem;max-height:400px;overflow-y:auto;font-size:0.85rem;color:#c0c0c0">{output}</div>', unsafe_allow_html=True)
+                st.download_button("↓ EXPORT .TXT", output, file_name="output.txt", mime="text/plain", use_container_width=True)
 
             # Markup preview
             elif output_type == 'markup':
-                st.markdown('<p style="color:#808080;font-size:0.7rem;letter-spacing:0.1em;margin-bottom:0.5rem">MARKUP OUTPUT</p>', unsafe_allow_html=True)
-                tab1, tab2 = st.tabs(["PREVIEW", "SOURCE"])
+                st.markdown('<p style="color:#00cccc;font-size:0.65rem;letter-spacing:0.15em;margin-bottom:0.5rem">├─ MARKUP DETECTED</p>', unsafe_allow_html=True)
+                tab1, tab2 = st.tabs(["RENDER", "SOURCE"])
                 with tab1:
                     st.components.v1.html(output, height=400, scrolling=True)
                 with tab2:
                     st.code(output, language="html")
         else:
             st.markdown(
-                '<div style="background:#0a0a0a;border:1px dashed #2a2a2a;padding:2rem;text-align:center;color:#808080;font-size:0.8rem">'
-                'OUTPUT PREVIEW<br><span style="font-size:0.7rem;color:#606060">Code, images, and text will appear here</span>'
+                '<div style="background:#080808;border:1px dashed #1a1a1a;padding:3rem 2rem;text-align:center">'
+                '<p style="color:#606060;font-size:0.7rem;letter-spacing:0.2em;margin:0">AWAITING OUTPUT</p>'
+                '<p style="color:#333;font-size:0.65rem;margin-top:0.5rem">Code blocks and text will render here</p>'
                 '</div>',
                 unsafe_allow_html=True
             )
