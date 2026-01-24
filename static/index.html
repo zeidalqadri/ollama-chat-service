@@ -84,6 +84,20 @@
                         <p class="username" id="display-username">&gt; loading...</p>
                     </div>
 
+                    <!-- Sessions Section -->
+                    <div class="sidebar-sessions">
+                        <div class="sidebar-section-header">
+                            <p class="section-label">SESSIONS</p>
+                            <button id="new-chat-btn" class="btn btn-small">+ NEW</button>
+                        </div>
+                        <div id="session-list" class="session-list">
+                            <!-- Sessions will be inserted here -->
+                        </div>
+                        <button id="load-more-sessions" class="btn btn-small load-more hidden">LOAD MORE</button>
+                    </div>
+
+                    <hr style="border-color: var(--border); margin: 1.5rem 0;">
+
                     <p class="section-label">MODEL</p>
                     <select id="model-select" class="model-select">
                         <option>Loading models...</option>
@@ -131,20 +145,67 @@
                     <div class="chat-input-container">
                         <div class="chat-input-wrapper">
                             <textarea id="chat-input" class="chat-input" placeholder="Enter message..." rows="1"></textarea>
-                            <button id="send-btn" class="send-btn">SEND</button>
+                            <div class="chat-buttons">
+                                <button id="stop-btn" class="btn btn-danger hidden">STOP</button>
+                                <button id="continue-btn" class="btn btn-secondary hidden">CONTINUE</button>
+                                <button id="send-btn" class="send-btn">SEND</button>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Canvas Panel -->
+                <!-- Canvas Panel (Artifacts) -->
                 <div class="canvas-panel">
                     <div class="canvas-header">
-                        <span class="canvas-header-text">[ OUTPUT ]</span>
+                        <span class="canvas-header-text">[ ARTIFACTS ]</span>
+                        <button id="download-all-btn" class="btn btn-small hidden">ZIP</button>
                     </div>
                     <div id="canvas-content" class="canvas-content">
-                        <div class="canvas-empty">
-                            <p class="canvas-empty-text">AWAITING OUTPUT</p>
-                            <p class="canvas-empty-sub">Code blocks and text will render here</p>
+                        <!-- Artifact Tree -->
+                        <div class="artifact-tree">
+                            <div class="artifact-folder" data-type="code">
+                                <div class="folder-header">
+                                    <span class="folder-icon">▶</span>
+                                    <span class="folder-name">Code</span>
+                                    <span class="folder-count" id="code-count">(0)</span>
+                                </div>
+                                <div class="folder-content hidden" id="code-artifacts"></div>
+                            </div>
+                            <div class="artifact-folder" data-type="thought">
+                                <div class="folder-header">
+                                    <span class="folder-icon">▶</span>
+                                    <span class="folder-name">Thoughts</span>
+                                    <span class="folder-count" id="thought-count">(0)</span>
+                                </div>
+                                <div class="folder-content hidden" id="thought-artifacts"></div>
+                            </div>
+                            <div class="artifact-folder" data-type="explanation">
+                                <div class="folder-header">
+                                    <span class="folder-icon">▶</span>
+                                    <span class="folder-name">Explanations</span>
+                                    <span class="folder-count" id="explanation-count">(0)</span>
+                                </div>
+                                <div class="folder-content hidden" id="explanation-artifacts"></div>
+                            </div>
+                        </div>
+
+                        <!-- Artifact Preview -->
+                        <div id="artifact-preview" class="artifact-preview hidden">
+                            <div class="preview-header">
+                                <span id="preview-title">Preview</span>
+                                <div class="preview-actions">
+                                    <button id="copy-artifact" class="btn btn-small">COPY</button>
+                                    <button id="download-artifact" class="btn btn-small">EXPORT</button>
+                                    <button id="close-preview" class="btn btn-small">×</button>
+                                </div>
+                            </div>
+                            <div id="preview-content" class="preview-content"></div>
+                        </div>
+
+                        <!-- Empty State -->
+                        <div id="canvas-empty" class="canvas-empty">
+                            <p class="canvas-empty-text">NO ARTIFACTS</p>
+                            <p class="canvas-empty-sub">Code, thoughts, and explanations will appear here</p>
                         </div>
                     </div>
                 </div>

@@ -910,3 +910,387 @@ a:hover {
 .hljs-operator {
     color: var(--text-secondary);
 }
+
+/* ============================================
+   Session List Styles
+============================================ */
+
+.sidebar-sessions {
+    margin-bottom: 1rem;
+}
+
+.sidebar-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.sidebar-section-header .section-label {
+    margin-bottom: 0;
+}
+
+.session-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.session-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    margin-bottom: 0.25rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.session-item:hover {
+    border-color: var(--accent-dim);
+}
+
+.session-item.active {
+    border-left: 2px solid var(--accent);
+    background: var(--bg-card);
+}
+
+.session-info {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.session-name {
+    color: var(--text);
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.session-name-input {
+    background: var(--bg-canvas);
+    border: 1px solid var(--accent);
+    color: var(--text);
+    padding: 0.1rem 0.3rem;
+    font-family: var(--font);
+    font-size: 0.8rem;
+    width: 100%;
+    outline: none;
+}
+
+.session-preview {
+    color: var(--muted);
+    font-size: 0.65rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 0.1rem;
+}
+
+.session-delete {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.25rem;
+    font-size: 0.75rem;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.session-item:hover .session-delete {
+    opacity: 1;
+}
+
+.session-delete:hover {
+    color: var(--error);
+}
+
+.load-more {
+    width: 100%;
+    margin-top: 0.5rem;
+}
+
+/* ============================================
+   Chat Buttons (Stop/Continue)
+============================================ */
+
+.chat-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.btn-secondary {
+    border-color: var(--tertiary);
+    color: var(--tertiary);
+}
+
+.btn-secondary:hover {
+    background: var(--tertiary);
+    color: var(--bg);
+}
+
+/* ============================================
+   Artifact Tree Styles
+============================================ */
+
+.artifact-tree {
+    margin-bottom: 1rem;
+}
+
+.artifact-folder {
+    margin-bottom: 0.5rem;
+}
+
+.folder-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.folder-header:hover {
+    border-color: var(--accent-dim);
+}
+
+.folder-icon {
+    color: var(--accent);
+    font-size: 0.7rem;
+    transition: transform 0.15s ease;
+}
+
+.artifact-folder.expanded .folder-icon {
+    transform: rotate(90deg);
+}
+
+.folder-name {
+    color: var(--text);
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+}
+
+.folder-count {
+    color: var(--muted);
+    font-size: 0.7rem;
+}
+
+.folder-content {
+    padding-left: 1rem;
+    margin-top: 0.25rem;
+}
+
+.artifact-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.4rem 0.75rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--accent-dim);
+    margin-bottom: 0.25rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.artifact-item:hover {
+    border-color: var(--accent-dim);
+    border-left-color: var(--accent);
+}
+
+.artifact-item.active {
+    border-left-color: var(--accent);
+    background: var(--bg-card);
+}
+
+.artifact-title {
+    color: var(--text);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.artifact-lang {
+    color: var(--tertiary);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+}
+
+/* ============================================
+   Artifact Preview Styles
+============================================ */
+
+.artifact-preview {
+    margin-top: 1rem;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+}
+
+.preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-input);
+}
+
+#preview-title {
+    color: var(--text);
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+}
+
+.preview-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.preview-content {
+    padding: 1rem;
+    max-height: 400px;
+    overflow: auto;
+}
+
+.preview-content pre {
+    margin: 0;
+    background: var(--bg-canvas);
+    border: none;
+}
+
+.preview-content code {
+    color: var(--text);
+    background: transparent;
+}
+
+/* ============================================
+   Canvas Header with ZIP button
+============================================ */
+
+.canvas-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+/* ============================================
+   Partial Message Indicator
+============================================ */
+
+.message.partial {
+    border-style: dashed;
+}
+
+.message.partial::after {
+    content: '[PARTIAL]';
+    display: block;
+    color: var(--warning);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    margin-top: 0.5rem;
+}
+
+/* ============================================
+   Mobile Responsive Styles
+============================================ */
+
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100vh;
+        z-index: 200;
+        transform: translateX(-100%);
+    }
+
+    .sidebar.visible {
+        transform: translateX(0);
+    }
+
+    .sidebar.hidden {
+        transform: translateX(-100%);
+    }
+
+    .panel-toggle {
+        left: 0.75rem !important;
+    }
+
+    .main-area {
+        flex-direction: column;
+    }
+
+    .chat-panel {
+        flex: 1;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .canvas-panel {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 45vh;
+        background: var(--bg-card);
+        transform: translateY(calc(100% - 48px));
+        transition: transform 0.25s ease;
+        z-index: 100;
+        border-top: 1px solid var(--accent-dim);
+    }
+
+    .canvas-panel.expanded {
+        transform: translateY(0);
+    }
+
+    .canvas-header {
+        cursor: pointer;
+    }
+
+    .canvas-header::after {
+        content: '▲';
+        color: var(--muted);
+        font-size: 0.6rem;
+    }
+
+    .canvas-panel.expanded .canvas-header::after {
+        content: '▼';
+    }
+
+    .chat-input-container {
+        padding-bottom: 60px;
+    }
+
+    .chat-buttons {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 480px) {
+    .session-list {
+        max-height: 150px;
+    }
+
+    .chat-input-wrapper {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .chat-buttons {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .send-btn {
+        width: 100%;
+    }
+}

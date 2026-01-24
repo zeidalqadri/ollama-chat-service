@@ -3,13 +3,13 @@
 ## Quick Start
 ```bash
 # Development
-uvicorn main:app --reload --port 8501
+uvicorn main:app --reload --port 8012
 
 # Production
-uvicorn main:app --host 0.0.0.0 --port 8501
+uvicorn main:app --host 0.0.0.0 --port 8012
 
 # Check health
-curl -s http://45.159.230.42:8501/health
+curl -s http://45.159.230.42:8012/health
 
 # Deploy changes
 scp -P 1511 main.py static/* root@45.159.230.42:/opt/ollama-ui/
@@ -95,7 +95,7 @@ VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", ...]
 |----------|-------|
 | IP | 45.159.230.42 |
 | SSH Port | **1511** (not 22!) |
-| App Port | 8501 |
+| App Port | 8012 |
 | Ollama Port | 11434 (localhost only) |
 
 ## Environment Variables
