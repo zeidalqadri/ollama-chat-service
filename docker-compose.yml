@@ -6,9 +6,11 @@ services:
       - "8501:8501"
     volumes:
       - ./data:/app/data
+      - ./stream_cache:/app/stream_cache
     environment:
       - OLLAMA_URL=http://host.docker.internal:11434
       - DATA_DIR=/app/data
+      - SECRET_KEY=${SECRET_KEY:-borak-production-key-change-me}
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"

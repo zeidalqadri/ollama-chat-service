@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BÖRAK01</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app">
+        <!-- Login View -->
+        <div id="login-view" class="login-view">
+            <div class="login-container">
+                <div class="login-header">
+                    <p class="login-status">[ FACILITY ONLINE ]</p>
+                    <div class="facility-logo">
+                        <div class="ascii-logo-wrapper">
+                            <span class="umlaut-dots">■ ■</span>
+                            <pre class="ascii-logo"> ██████╗ ██████╗ ██████╗  █████╗ ██╗  ██╗ ██████╗  ██╗
+ ██╔══██╗██╔═══██╗██╔══██╗██╔══██╗██║ ██╔╝██╔═████╗███║
+ ██████╔╝██║   ██║██████╔╝███████║█████╔╝ ██║██╔██║╚██║
+ ██╔══██╗██║   ██║██╔══██╗██╔══██║██╔═██╗ ████╔╝██║ ██║
+ ██████╔╝╚██████╔╝██║  ██║██║  ██║██║  ██╗╚██████╔╝ ██║
+ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═╝</pre>
+                        </div>
+                    </div>
+                    <p class="login-subtitle">PRIVATE INFERENCE FACILITY</p>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="login">LOGIN</button>
+                    <button class="tab-btn" data-tab="register">REGISTER</button>
+                </div>
+
+                <div id="auth-alert" class="alert hidden"></div>
+
+                <!-- Login Form -->
+                <form id="login-form" class="auth-form">
+                    <div class="form-group">
+                        <label for="login-username">Username</label>
+                        <input type="text" id="login-username" placeholder="enter username" autocomplete="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Password</label>
+                        <input type="password" id="login-password" placeholder="enter password" autocomplete="current-password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">CONNECT</button>
+                </form>
+
+                <!-- Register Form -->
+                <form id="register-form" class="auth-form hidden">
+                    <div class="form-group">
+                        <label for="reg-username">Username</label>
+                        <input type="text" id="reg-username" placeholder="choose username" autocomplete="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-password">Password</label>
+                        <input type="password" id="reg-password" placeholder="choose password" autocomplete="new-password" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-confirm">Confirm</label>
+                        <input type="password" id="reg-confirm" placeholder="confirm password" autocomplete="new-password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">REGISTER</button>
+                </form>
+
+                <p class="login-footer">E2E ENCRYPTED // ZERO TELEMETRY // SOVEREIGN DATA</p>
+            </div>
+        </div>
+
+        <!-- Chat View -->
+        <div id="chat-view" class="chat-view">
+            <!-- Sidebar -->
+            <aside id="sidebar" class="sidebar">
+                <div class="sidebar-content">
+                    <div class="user-info">
+                        <p class="user-label">USER</p>
+                        <p class="username" id="display-username">&gt; loading...</p>
+                    </div>
+
+                    <p class="section-label">MODEL</p>
+                    <select id="model-select" class="model-select">
+                        <option>Loading models...</option>
+                    </select>
+                    <p id="vision-badge" class="vision-badge hidden">VISION CAPABLE</p>
+
+                    <p class="section-label" style="margin-top: 1.5rem;">ATTACH</p>
+                    <div class="file-upload" id="file-upload">
+                        <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp">
+                        <span class="file-upload-label">Click to upload image</span>
+                    </div>
+                    <div id="image-preview" class="image-preview hidden">
+                        <img id="preview-img" src="" alt="Preview">
+                        <button class="btn btn-small btn-danger" id="remove-image" style="margin-top: 0.5rem; width: 100%;">REMOVE</button>
+                    </div>
+
+                    <hr style="border-color: var(--border); margin: 1.5rem 0;">
+
+                    <p class="section-label">ACTIONS</p>
+                    <div class="actions">
+                        <button class="btn btn-small" id="clear-chat">CLEAR</button>
+                        <button class="btn btn-small" id="logout-btn">EXIT</button>
+                    </div>
+
+                    <div class="sidebar-status">
+                        <p class="status-online">CONNECTED</p>
+                        <p class="status-text">LOCAL - SECURE</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Panel Toggle -->
+            <button id="panel-toggle" class="panel-toggle">PANEL</button>
+
+            <!-- Main Area -->
+            <main class="main-area">
+                <!-- Chat Panel -->
+                <div class="chat-panel">
+                    <div class="chat-header">
+                        <span class="chat-header-text">[ TERMINAL ]</span>
+                    </div>
+                    <div id="messages" class="messages-container">
+                        <!-- Messages will be inserted here -->
+                    </div>
+                    <div class="chat-input-container">
+                        <div class="chat-input-wrapper">
+                            <textarea id="chat-input" class="chat-input" placeholder="Enter message..." rows="1"></textarea>
+                            <button id="send-btn" class="send-btn">SEND</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Canvas Panel -->
+                <div class="canvas-panel">
+                    <div class="canvas-header">
+                        <span class="canvas-header-text">[ OUTPUT ]</span>
+                    </div>
+                    <div id="canvas-content" class="canvas-content">
+                        <div class="canvas-empty">
+                            <p class="canvas-empty-text">AWAITING OUTPUT</p>
+                            <p class="canvas-empty-sub">Code blocks and text will render here</p>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
