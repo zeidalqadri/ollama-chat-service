@@ -5,15 +5,30 @@ import bcrypt
 import os
 import base64
 import re
+import json
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
+
+# ChromaDB for persistent chat storage
+try:
+    import chromadb
+    from chromadb.config import Settings
+    CHROMA_AVAILABLE = True
+except ImportError:
+    CHROMA_AVAILABLE = False
 
 # Config
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(DATA_DIR, "users.db")
+CHROMA_PATH = os.path.join(DATA_DIR, "chroma_db")
+STREAM_CACHE_DIR = os.path.join(DATA_DIR, "stream_cache")
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "qwen3-coder:30b")
 VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", "bakllava", "llava-phi", "granite3.2-vision", "minicpm-v"]
+
+# Ensure cache directory exists
+Path(STREAM_CACHE_DIR).mkdir(exist_ok=True)
 
 # Theme - Cypherpunk Terminal Aesthetic
 CUSTOM_CSS = """
@@ -99,13 +114,13 @@ CUSTOM_CSS = """
     .stButton > button:focus, .stFormSubmitButton > button:focus { outline: 1px solid var(--accent) !important; outline-offset: 2px !important; }
     .stFormSubmitButton > button { width: 100%; margin-top: 1rem; }
 
-    /* Sidebar - control panel - force always visible */
+    /* Sidebar - control panel */
     [data-testid="stSidebar"] {
         background: var(--bg-card) !important;
         border-right: 1px solid var(--border) !important;
-        transform: none !important;
         width: 280px !important;
         min-width: 280px !important;
+        transition: transform 0.2s ease !important;
     }
     [data-testid="stSidebar"] > div:first-child {
         width: 280px !important;
@@ -116,6 +131,61 @@ CUSTOM_CSS = """
     .stSidebar button[kind="headerNoPadding"] { display: none !important; }
     section[data-testid="stSidebar"] button:has(span.material-symbols-outlined) { display: none !important; }
     span.material-symbols-outlined { font-family: 'Material Symbols Outlined' !important; }
+
+    /* Sidebar toggle via JS - no rerun needed */
+    .sidebar-hidden [data-testid="stSidebar"] {
+        transform: translateX(-100%) !important;
+        pointer-events: none;
+    }
+    .sidebar-hidden [data-testid="stSidebar"] + section {
+        margin-left: 0 !important;
+    }
+
+    /* Floating toggle button */
+    #panel-toggle {
+        position: fixed !important;
+        top: 0.75rem;
+        left: 0.75rem;
+        z-index: 9999;
+        background: var(--bg-card) !important;
+        border: 1px solid var(--accent-dim) !important;
+        color: var(--accent) !important;
+        padding: 0.4rem 0.6rem !important;
+        font-size: 0.65rem !important;
+        font-family: var(--font) !important;
+        letter-spacing: 0.1em !important;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    #panel-toggle:hover {
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 8px rgba(0,204,102,0.2) !important;
+    }
+    .sidebar-hidden #panel-toggle {
+        left: 0.75rem;
+    }
+
+    /* Streaming mode - lock UI to prevent interrupts */
+    .streaming-active [data-testid="stSidebar"] {
+        pointer-events: none !important;
+        opacity: 0.5 !important;
+    }
+    .streaming-active [data-testid="stSidebar"]::after {
+        content: '◉ GENERATING...';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: var(--accent);
+        font-size: 0.7rem;
+        letter-spacing: 0.15em;
+        text-shadow: 0 0 10px var(--accent);
+        z-index: 1000;
+    }
+    .streaming-active [data-testid="stChatInput"] {
+        pointer-events: none !important;
+        opacity: 0.5 !important;
+    }
     [data-testid="stSidebar"] [data-testid="stWidgetLabel"] { color: var(--muted) !important; font-size: 0.7rem !important; letter-spacing: 0.1em !important; }
     [data-testid="stSidebar"] .stSelectbox > div > div,
     [data-testid="stSidebar"] [data-baseweb="select"] > div {
@@ -280,6 +350,164 @@ def log_usage(user_id, model, tokens_in, tokens_out):
     conn.commit()
     conn.close()
 
+def save_message(user_id, role, content, model):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("INSERT INTO chat_history (user_id, role, content, model, created_at) VALUES (?, ?, ?, ?, ?)",
+              (user_id, role, content, model, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+def load_chat_history(user_id, limit=50):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT role, content FROM chat_history WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
+
+def clear_chat_history(user_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    # Also clear from Chroma
+    if CHROMA_AVAILABLE:
+        try:
+            chroma_clear_user(user_id)
+        except Exception:
+            pass
+
+# ChromaDB functions for persistent vector storage
+def get_chroma_client():
+    if not CHROMA_AVAILABLE:
+        return None
+    return chromadb.PersistentClient(
+        path=CHROMA_PATH,
+        settings=Settings(anonymized_telemetry=False)
+    )
+
+def get_chat_collection(client):
+    if not client:
+        return None
+    return client.get_or_create_collection(
+        name="chat_history",
+        metadata={"description": "BÖRAK chat messages"}
+    )
+
+def chroma_save_message(user_id, role, content, model, msg_id=None):
+    """Save a message to ChromaDB with embedding for semantic search."""
+    if not CHROMA_AVAILABLE or not content:
+        return
+    try:
+        client = get_chroma_client()
+        collection = get_chat_collection(client)
+        if not collection:
+            return
+
+        doc_id = msg_id or f"{user_id}_{role}_{datetime.now().timestamp()}"
+        collection.upsert(
+            ids=[doc_id],
+            documents=[content],
+            metadatas=[{
+                "user_id": str(user_id),
+                "role": role,
+                "model": model,
+                "timestamp": datetime.now().isoformat()
+            }]
+        )
+    except Exception as e:
+        print(f"Chroma save error: {e}")
+
+def chroma_load_history(user_id, limit=50):
+    """Load chat history from ChromaDB."""
+    if not CHROMA_AVAILABLE:
+        return []
+    try:
+        client = get_chroma_client()
+        collection = get_chat_collection(client)
+        if not collection:
+            return []
+
+        results = collection.get(
+            where={"user_id": str(user_id)},
+            limit=limit
+        )
+
+        if not results["ids"]:
+            return []
+
+        # Sort by timestamp and return as messages
+        messages = []
+        for i, doc_id in enumerate(results["ids"]):
+            meta = results["metadatas"][i]
+            messages.append({
+                "role": meta["role"],
+                "content": results["documents"][i],
+                "timestamp": meta.get("timestamp", "")
+            })
+
+        # Sort by timestamp
+        messages.sort(key=lambda x: x.get("timestamp", ""))
+        return [{"role": m["role"], "content": m["content"]} for m in messages]
+    except Exception as e:
+        print(f"Chroma load error: {e}")
+        return []
+
+def chroma_clear_user(user_id):
+    """Clear all messages for a user from ChromaDB."""
+    if not CHROMA_AVAILABLE:
+        return
+    try:
+        client = get_chroma_client()
+        collection = get_chat_collection(client)
+        if collection:
+            # Get all IDs for this user
+            results = collection.get(where={"user_id": str(user_id)})
+            if results["ids"]:
+                collection.delete(ids=results["ids"])
+    except Exception as e:
+        print(f"Chroma clear error: {e}")
+
+# Streaming cache for crash recovery
+def get_stream_cache_path(user_id):
+    return os.path.join(STREAM_CACHE_DIR, f"stream_{user_id}.json")
+
+def save_stream_chunk(user_id, content, is_complete=False):
+    """Save streaming content to disk for crash recovery."""
+    cache_path = get_stream_cache_path(user_id)
+    try:
+        with open(cache_path, 'w') as f:
+            json.dump({
+                "content": content,
+                "complete": is_complete,
+                "timestamp": datetime.now().isoformat()
+            }, f)
+    except Exception:
+        pass
+
+def load_stream_cache(user_id):
+    """Load any incomplete stream from cache."""
+    cache_path = get_stream_cache_path(user_id)
+    try:
+        if os.path.exists(cache_path):
+            with open(cache_path, 'r') as f:
+                data = json.load(f)
+                return data
+    except Exception:
+        pass
+    return None
+
+def clear_stream_cache(user_id):
+    """Clear the stream cache after successful completion."""
+    cache_path = get_stream_cache_path(user_id)
+    try:
+        if os.path.exists(cache_path):
+            os.remove(cache_path)
+    except Exception:
+        pass
+
 # Ollama
 def get_available_models():
     try:
@@ -296,20 +524,29 @@ def is_vision_model(model_name):
 def encode_image(image_bytes):
     return base64.b64encode(image_bytes).decode('utf-8')
 
-def chat_with_ollama(messages, model, images=None):
+def chat_with_ollama_stream(messages, model, images=None):
+    """Generator that yields response chunks for streaming."""
+    import json as json_module
     try:
-        payload = {"model": model, "messages": messages, "stream": False}
+        payload = {"model": model, "messages": messages, "stream": True}
         if images and is_vision_model(model):
-            # Add images to the last user message
             if messages and messages[-1]["role"] == "user":
                 messages[-1]["images"] = images
-        response = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=300)
-        if response.ok:
-            data = response.json()
-            return data.get("message", {}).get("content", "No response"), data
-        return f"Error: {response.status_code}", None
+
+        with requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=300, stream=True) as response:
+            if response.ok:
+                for line in response.iter_lines():
+                    if line:
+                        chunk = json_module.loads(line)
+                        content = chunk.get("message", {}).get("content", "")
+                        if content:
+                            yield content
+                        if chunk.get("done"):
+                            yield {"__done__": True, "data": chunk}
+            else:
+                yield f"Error: {response.status_code}"
     except Exception as e:
-        return f"Error: {str(e)}", None
+        yield f"Error: {str(e)}"
 
 def extract_code_blocks(text):
     """Extract code blocks from markdown text"""
@@ -333,6 +570,33 @@ init_db()
 st.set_page_config(page_title="BÖRAK", page_icon="", layout="wide", initial_sidebar_state="expanded")
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
+# JavaScript-based panel toggle and streaming lock - no Python rerun
+PANEL_TOGGLE_JS = '''
+<button id="panel-toggle" onclick="togglePanel()">◀ PANEL</button>
+<script>
+function togglePanel() {
+    const app = document.querySelector('.stApp');
+    const btn = document.getElementById('panel-toggle');
+    if (app.classList.contains('sidebar-hidden')) {
+        app.classList.remove('sidebar-hidden');
+        btn.textContent = '◀ PANEL';
+    } else {
+        app.classList.add('sidebar-hidden');
+        btn.textContent = '▶ PANEL';
+    }
+}
+function setStreaming(active) {
+    const app = document.querySelector('.stApp');
+    if (active) {
+        app.classList.add('streaming-active');
+    } else {
+        app.classList.remove('streaming-active');
+    }
+}
+</script>
+'''
+st.markdown(PANEL_TOGGLE_JS, unsafe_allow_html=True)
+
 # Session state
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -340,10 +604,14 @@ if "authenticated" not in st.session_state:
     st.session_state.username = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "history_loaded" not in st.session_state:
+    st.session_state.history_loaded = False
 if "uploaded_images" not in st.session_state:
     st.session_state.uploaded_images = []
 if "last_output" not in st.session_state:
     st.session_state.last_output = None
+if "is_streaming" not in st.session_state:
+    st.session_state.is_streaming = False
 
 # Auth
 if not st.session_state.authenticated:
@@ -393,6 +661,26 @@ if not st.session_state.authenticated:
 
 # Chat
 else:
+    # Load chat history on first load
+    if not st.session_state.history_loaded and st.session_state.user_id:
+        # Try Chroma first, fall back to SQLite
+        if CHROMA_AVAILABLE:
+            st.session_state.messages = chroma_load_history(st.session_state.user_id)
+        if not st.session_state.messages:
+            st.session_state.messages = load_chat_history(st.session_state.user_id)
+
+        # Check for interrupted stream and recover
+        cached = load_stream_cache(st.session_state.user_id)
+        if cached and cached.get("content") and not cached.get("complete"):
+            # There was an interrupted response - add it
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": cached["content"] + "\n\n*[Recovered from interruption]*"
+            })
+            clear_stream_cache(st.session_state.user_id)
+
+        st.session_state.history_loaded = True
+
     # Sidebar - Control Panel
     with st.sidebar:
         st.markdown(
@@ -427,6 +715,7 @@ else:
         st.markdown('<p style="color:#606060;font-size:0.65rem;letter-spacing:0.15em;margin-bottom:0.5rem">┌─ ACTIONS</p>', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         if c1.button("CLEAR", use_container_width=True):
+            clear_chat_history(st.session_state.user_id)
             st.session_state.messages = []
             st.session_state.uploaded_images = []
             st.session_state.last_output = None
@@ -435,6 +724,7 @@ else:
             for k in ["authenticated", "user_id", "username", "messages", "uploaded_images", "last_output"]:
                 st.session_state[k] = None if k not in ["messages", "uploaded_images"] else []
             st.session_state.authenticated = False
+            st.session_state.history_loaded = False
             st.rerun()
 
         st.markdown(
@@ -468,28 +758,67 @@ else:
             user_msg = {"role": "user", "content": prompt, "has_image": has_image}
             st.session_state.messages.append(user_msg)
 
+            # Save user message to DB and Chroma
+            save_message(st.session_state.user_id, "user", prompt, selected_model)
+            chroma_save_message(st.session_state.user_id, "user", prompt, selected_model)
+
             with chat_container:
                 with st.chat_message("user"):
                     if has_image:
                         st.markdown('<span style="color:#00cccc;font-size:0.65rem;letter-spacing:0.1em">◎ IMAGE ATTACHED</span>', unsafe_allow_html=True)
                     st.markdown(prompt)
 
-            # Get response
+            # Get streaming response
             with chat_container:
                 with st.chat_message("assistant"):
-                    with st.spinner("Processing..."):
-                        # Prepare messages for API (without has_image field)
-                        api_messages = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
-                        response, data = chat_with_ollama(api_messages, selected_model, st.session_state.uploaded_images if has_image else None)
-                        st.markdown(response)
-                        st.session_state.last_output = response
+                    # Lock UI during streaming
+                    st.markdown('<script>setStreaming(true);</script>', unsafe_allow_html=True)
 
-                        if data:
-                            log_usage(st.session_state.user_id, selected_model, data.get("prompt_eval_count", 0), data.get("eval_count", 0))
+                    response_placeholder = st.empty()
+                    full_response = ""
+                    usage_data = None
 
-            st.session_state.messages.append({"role": "assistant", "content": response})
+                    # Prepare messages for API (without has_image field)
+                    api_messages = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+
+                    try:
+                        for chunk in chat_with_ollama_stream(api_messages, selected_model, st.session_state.uploaded_images if has_image else None):
+                            if isinstance(chunk, dict) and chunk.get("__done__"):
+                                usage_data = chunk.get("data", {})
+                                # Mark stream as complete
+                                save_stream_chunk(st.session_state.user_id, full_response, is_complete=True)
+                            elif isinstance(chunk, str):
+                                if chunk.startswith("Error:"):
+                                    full_response = chunk
+                                    response_placeholder.markdown(chunk)
+                                else:
+                                    full_response += chunk
+                                    response_placeholder.markdown(full_response + "▌")
+                                    # Save to disk every chunk for crash recovery
+                                    save_stream_chunk(st.session_state.user_id, full_response, is_complete=False)
+                                    st.session_state.last_output = full_response
+                    except Exception as e:
+                        if full_response:
+                            response_placeholder.markdown(full_response + "\n\n*[Generation interrupted]*")
+                        else:
+                            full_response = f"Error: {str(e)}"
+                            response_placeholder.markdown(full_response)
+
+                    response_placeholder.markdown(full_response if full_response else "*No response received*")
+                    st.session_state.last_output = full_response
+
+                    if usage_data:
+                        log_usage(st.session_state.user_id, selected_model, usage_data.get("prompt_eval_count", 0), usage_data.get("eval_count", 0))
+
+                    # Unlock UI after streaming
+                    st.markdown('<script>setStreaming(false);</script>', unsafe_allow_html=True)
+
+            # Save assistant message to DB and Chroma
+            save_message(st.session_state.user_id, "assistant", full_response, selected_model)
+            chroma_save_message(st.session_state.user_id, "assistant", full_response, selected_model)
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
             st.session_state.uploaded_images = []  # Clear after sending
-            st.rerun()
+            clear_stream_cache(st.session_state.user_id)  # Clear cache on successful completion
 
     with canvas_col:
         st.markdown('<p style="color:#606060;font-size:0.7rem;letter-spacing:0.15em;border-bottom:1px solid #1a1a1a;padding-bottom:0.75rem;margin-bottom:1rem">[ OUTPUT ]</p>', unsafe_allow_html=True)
