@@ -1,86 +1,94 @@
-# BÖRAK - Ollama Chat Service
+# BORAK - Ollama Chat Service
 
 ## Quick Start
 ```bash
-# Check deployment
-curl -s http://45.159.230.42:8501/_stcore/health
+# Development
+uvicorn main:app --reload --port 8501
 
-# Restart if needed
-ssh -p 1511 root@45.159.230.42 "fuser -k 8501/tcp; cd /opt/ollama-ui && source venv/bin/activate && nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true &"
+# Production
+uvicorn main:app --host 0.0.0.0 --port 8501
+
+# Check health
+curl -s http://45.159.230.42:8501/health
 
 # Deploy changes
-scp -P 1511 app.py root@45.159.230.42:/opt/ollama-ui/app.py
+scp -P 1511 main.py static/* root@45.159.230.42:/opt/ollama-ui/
 ```
-
-## Critical Warning ⚠️
-**Canvas column indentation**: `canvas_col` MUST be at **4 spaces** (same level as `chat_col`).
-Using 8 spaces nests it inside `chat_col` and breaks the layout. This bug was fixed twice.
 
 ## Architecture
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Streamlit Frontend                    │
-├─────────────────────────────────────────────────────────┤
-│  Main Thread (polling)  │  Background Thread (daemon)   │
-│  - Renders UI           │  - Calls Ollama API           │
-│  - Polls gen_*.json     │  - Writes to gen_{user}.json  │
-│  - Updates chat display │  - Survives WebSocket drops   │
-└─────────────────────────────────────────────────────────┘
-         │                           │
-         ▼                           ▼
-┌─────────────────┐       ┌─────────────────┐
-│  ChromaDB       │       │  Ollama API     │
-│  (vector store) │       │  localhost:11434│
-└─────────────────┘       └─────────────────┘
-         │
-         ▼
-┌─────────────────┐
-│  SQLite         │
-│  (users.db)     │
-└─────────────────┘
++---------------------------------------------------------+
+|                    Browser (index.html)                  |
+|  +-------------+  +-------------+  +-----------------+  |
+|  | Login Page  |  |  Chat Page  |  |  Canvas Panel   |  |
+|  +-------------+  +-------------+  +-----------------+  |
++--------------------------+------------------------------+
+                           | HTTP/SSE
++--------------------------+------------------------------+
+|                  FastAPI Backend (main.py)               |
+|  +----------+  +----------+  +----------+  +---------+  |
+|  |  Auth    |  |  Chat    |  |  Models  |  | Stream  |  |
+|  |  Routes  |  |  Routes  |  |  Routes  |  |  (SSE)  |  |
+|  +----------+  +----------+  +----------+  +---------+  |
++--------------------------+------------------------------+
+                           |
++--------------------------+------------------------------+
+|                    Data Layer                            |
+|  +----------+  +----------+  +----------------------+   |
+|  |  SQLite  |  | ChromaDB |  |  Ollama API          |   |
+|  | (users)  |  | (history)|  |  localhost:11434     |   |
+|  +----------+  +----------+  +----------------------+   |
++---------------------------------------------------------+
 ```
-
-- **Frontend**: Streamlit (Python)
-- **LLM Backend**: Ollama API (localhost:11434 on VPS)
-- **Auth DB**: SQLite (users.db)
-- **Vector Store**: ChromaDB (chat persistence)
-- **State Persistence**: File-based (`gen_{user_id}.json`)
-- **Auth**: bcrypt password hashing
 
 ## Key Files
 | File | Purpose |
 |------|---------|
-| `app.py` | Main application (~945 lines) - UI, auth, chat, vision |
-| `.streamlit/config.toml` | Theme configuration |
+| `main.py` | FastAPI backend (~500 lines) - Auth, Chat, SSE streaming |
+| `static/index.html` | Single-page app - Login/Chat views |
+| `static/style.css` | Cypherpunk terminal theme |
+| `static/app.js` | Client-side logic - Auth, streaming, UI |
+| `app_streamlit.py` | Legacy Streamlit version (reference) |
 | `users.db` | User database (gitignored) |
-| `dev/active/handoff.md` | Session continuity documentation |
-| `dev/active/borak-context.md` | Architecture and context |
-| `dev/active/borak-tasks.md` | Task tracking |
+| `chroma_db/` | Vector store for chat history |
 
-## App.py Structure
-```
-Lines 1-50:     Imports, constants, VISION_MODELS list
-Lines 51-150:   CSS styling (cypherpunk theme)
-Lines 151-250:  Auth functions (login, register, bcrypt)
-Lines 251-400:  ChromaDB integration, chat persistence
-Lines 401-550:  Background generation (daemon threads, polling)
-Lines 551-700:  UI components (sidebar, chat display)
-Lines 701-945:  Main layout (chat_col, canvas_col at SAME indent)
-```
+## API Endpoints
+
+### Authentication
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/login` | Login, sets JWT cookie |
+| POST | `/api/auth/register` | Create new user |
+| POST | `/api/auth/logout` | Clear session |
+| GET | `/api/auth/me` | Get current user |
+
+### Chat
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/chat/history` | Get chat history |
+| POST | `/api/chat/send` | Send message (returns SSE stream) |
+| DELETE | `/api/chat/clear` | Clear chat history |
+
+### Models
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/models` | List available Ollama models |
 
 ## Vision Models
 Vision-capable models are auto-detected by name pattern:
 ```python
 VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", ...]
 ```
-When a vision model is selected, image upload is enabled in sidebar.
 
-## CSS Customization
-Cypherpunk terminal theme with:
-- `--accent: #00cc66` (terminal green)
-- `--cyan: #00cccc` (secondary)
-- Forced sidebar visibility (no collapse)
-- Hidden Streamlit branding
+## CSS Theme Variables
+```css
+--bg: #0a0a0a;        /* Main background */
+--bg-card: #0d0d0d;   /* Card background */
+--accent: #00cc66;    /* Terminal green */
+--cyan: #00cccc;      /* Secondary accent */
+--muted: #606060;     /* Muted text */
+--font: 'JetBrains Mono', monospace;
+```
 
 ## VPS Info
 | Property | Value |
@@ -90,10 +98,21 @@ Cypherpunk terminal theme with:
 | App Port | 8501 |
 | Ollama Port | 11434 (localhost only) |
 
-## Known Issues & Fixes
-| Issue | Symptom | Fix |
-|-------|---------|-----|
-| WebSocket drops | Response lost mid-generation | Background thread + file persistence |
-| Infinite rerun loops | Page keeps refreshing | Remove `st.rerun()`, use polling |
-| Panel toggle interrupts | Generation stops on sidebar click | JS toggle instead of Python button |
-| Layout broken | Login form in wrong column | Fix canvas_col indent to 4 spaces |
+## Environment Variables
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama API URL |
+| `DATA_DIR` | `.` | Directory for SQLite and ChromaDB |
+| `SECRET_KEY` | auto-generated | JWT signing key (set in production!) |
+| `DEFAULT_MODEL` | `qwen3-coder:30b` | Default model selection |
+
+## Migration from Streamlit
+The app was migrated from Streamlit to FastAPI to eliminate DOM ghost issues.
+Key changes:
+- `st.session_state` -> JWT cookies
+- `st.chat_message()` -> HTML divs with CSS classes
+- `st.chat_input()` -> HTML textarea + JS handler
+- `st.rerun()` -> Event-driven (no longer needed)
+- Streaming via `st.write_stream()` -> Server-Sent Events (SSE)
+
+Legacy Streamlit code preserved in `app_streamlit.py` for reference.
