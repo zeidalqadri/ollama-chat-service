@@ -1,19 +1,39 @@
-/* BÖRAK01 - Cypherpunk Terminal Theme */
+/* BÖRAK01 - Soothing Monochrome Theme */
 
 :root {
-    --bg: #0a0a0a;
-    --bg-card: #0d0d0d;
-    --bg-input: #111111;
-    --bg-canvas: #080808;
-    --text: #c0c0c0;
-    --muted: #606060;
-    --accent: #00cc66;
-    --accent-dim: #006633;
-    --cyan: #00cccc;
-    --amber: #cc9900;
-    --error: #cc3333;
-    --border: #1a1a1a;
-    --border-active: #333333;
+    /* Base: Deep charcoal with warm undertones */
+    --bg: #121214;
+    --bg-card: #18181b;
+    --bg-input: #1e1e22;
+    --bg-canvas: #0f0f11;
+
+    /* Text: High contrast white hierarchy */
+    --text: #e8e8ec;
+    --text-secondary: #a8a8b0;
+    --muted: #6b6b78;
+
+    /* Accent: Soft lavender pastel */
+    --accent: #a8a0d0;
+    --accent-dim: #7b7498;
+    --accent-glow: rgba(168, 160, 208, 0.15);
+
+    /* Secondary: Muted rose */
+    --secondary: #c4a8b8;
+    --secondary-dim: #907080;
+
+    /* Tertiary: Soft sage */
+    --tertiary: #98b8a8;
+
+    /* Status */
+    --error: #d09090;
+    --success: #90c0a0;
+    --warning: #d0c090;
+
+    /* Borders */
+    --border: #28282e;
+    --border-active: #404048;
+
+    /* Font */
     --font: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', monospace;
 }
 
@@ -86,16 +106,11 @@ body {
 }
 
 .login-status {
-    color: var(--accent-dim);
+    color: var(--muted);
     font-size: 0.7rem;
     letter-spacing: 0.3em;
     margin-bottom: 1rem;
-    animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 0.6; }
-    50% { opacity: 1; }
+    opacity: 0.8;
 }
 
 .facility-logo {
@@ -111,27 +126,19 @@ body {
     position: absolute;
     top: -0.6rem;
     left: 3.8rem;
-    color: var(--accent);
+    color: var(--text);
     font-size: 0.35rem;
     letter-spacing: 0.05rem;
-    text-shadow: 0 0 10px var(--accent), 0 0 20px var(--accent-dim);
-    animation: glow 3s ease-in-out infinite alternate;
 }
 
 .ascii-logo {
-    color: var(--accent);
+    color: var(--text);
     font-size: 0.55rem;
     line-height: 1.1;
-    text-shadow: 0 0 10px var(--accent), 0 0 20px var(--accent-dim);
     margin: 0;
     white-space: pre;
     display: inline-block;
-    animation: glow 3s ease-in-out infinite alternate;
-}
-
-@keyframes glow {
-    from { text-shadow: 0 0 5px var(--accent), 0 0 10px var(--accent-dim); }
-    to { text-shadow: 0 0 15px var(--accent), 0 0 30px var(--accent-dim), 0 0 45px var(--accent-dim); }
+    opacity: 0.9;
 }
 
 .login-title {
@@ -178,7 +185,7 @@ body {
 }
 
 .tab-btn.active {
-    color: var(--accent);
+    color: var(--text);
     border-bottom: 1px solid var(--accent);
     background: var(--bg-input);
 }
@@ -239,7 +246,7 @@ body {
 
 .form-group input:focus {
     border-left-color: var(--accent);
-    box-shadow: 0 0 8px rgba(0, 204, 102, 0.15);
+    box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .form-group input::placeholder {
@@ -263,7 +270,7 @@ body {
 .btn:hover {
     background: var(--accent);
     color: var(--bg);
-    box-shadow: 0 0 12px rgba(0, 204, 102, 0.3);
+    box-shadow: 0 0 16px var(--accent-glow);
 }
 
 .btn:focus {
@@ -289,7 +296,6 @@ body {
 .btn-danger:hover {
     background: var(--error);
     color: var(--bg);
-    box-shadow: 0 0 12px rgba(204, 51, 51, 0.3);
 }
 
 /* Alerts */
@@ -301,15 +307,15 @@ body {
 }
 
 .alert-error {
-    background: rgba(204, 51, 51, 0.05);
+    background: rgba(208, 144, 144, 0.08);
     border-color: var(--error);
     color: var(--error);
 }
 
 .alert-success {
-    background: rgba(0, 204, 102, 0.05);
-    border-color: var(--accent);
-    color: var(--accent);
+    background: rgba(144, 192, 160, 0.08);
+    border-color: var(--success);
+    color: var(--success);
 }
 
 .login-footer {
@@ -370,7 +376,7 @@ body {
 }
 
 .username {
-    color: var(--accent);
+    color: var(--text);
     font-size: 0.85rem;
     font-weight: 500;
     margin-top: 0.25rem;
@@ -401,10 +407,9 @@ body {
 }
 
 .vision-badge {
-    color: var(--cyan);
+    color: var(--tertiary);
     font-size: 0.7rem;
     margin-top: 0.5rem;
-    text-shadow: 0 0 6px var(--cyan);
 }
 
 /* File Upload */
@@ -488,7 +493,7 @@ body {
 
 .panel-toggle:hover {
     border-color: var(--accent);
-    box-shadow: 0 0 8px rgba(0, 204, 102, 0.2);
+    background: var(--bg-input);
 }
 
 .sidebar.hidden + .main-area .panel-toggle,
@@ -544,12 +549,16 @@ body {
 }
 
 .message.user {
-    border-left: 2px solid var(--cyan);
+    border-left: 2px solid var(--secondary);
 }
 
 .message.assistant {
     border-left: 2px solid var(--accent-dim);
     background: var(--bg-input);
+}
+
+.message.assistant .message-content {
+    color: var(--text);
 }
 
 .message-role {
@@ -560,11 +569,11 @@ body {
 }
 
 .message.user .message-role {
-    color: var(--cyan);
+    color: var(--secondary);
 }
 
 .message.assistant .message-role {
-    color: var(--accent-dim);
+    color: var(--accent);
 }
 
 .message-content {
@@ -594,7 +603,7 @@ body {
 }
 
 .image-attached {
-    color: var(--cyan);
+    color: var(--tertiary);
     font-size: 0.65rem;
     letter-spacing: 0.1em;
     margin-bottom: 0.5rem;
@@ -612,8 +621,7 @@ body {
 }
 
 .generating-indicator {
-    color: var(--accent);
-    font-style: italic;
+    color: var(--muted);
     font-size: 0.85rem;
 }
 
@@ -645,7 +653,7 @@ body {
 
 .chat-input:focus {
     border-color: var(--accent-dim);
-    box-shadow: 0 0 8px rgba(0, 204, 102, 0.1);
+    box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .chat-input::placeholder {
@@ -653,8 +661,8 @@ body {
 }
 
 .send-btn {
-    background: var(--accent);
-    color: var(--bg);
+    background: var(--accent-dim);
+    color: var(--text);
     border: none;
     padding: 0 1rem;
     font-family: var(--font);
@@ -664,7 +672,8 @@ body {
 }
 
 .send-btn:hover {
-    box-shadow: 0 0 12px rgba(0, 204, 102, 0.4);
+    background: var(--accent);
+    color: var(--bg);
 }
 
 .send-btn:disabled {
@@ -722,7 +731,7 @@ body {
 }
 
 .code-section-label {
-    color: var(--cyan);
+    color: var(--text-secondary);
     font-size: 0.65rem;
     letter-spacing: 0.15em;
     margin-bottom: 0.5rem;
@@ -744,7 +753,7 @@ body {
 }
 
 .code-block-lang {
-    color: var(--cyan);
+    color: var(--tertiary);
     font-size: 0.7rem;
     letter-spacing: 0.1em;
 }
@@ -794,17 +803,17 @@ body {
 
 .download-btn:hover {
     border-color: var(--accent);
-    box-shadow: 0 0 8px rgba(0, 204, 102, 0.2);
+    background: var(--bg-card);
 }
 
 /* Links */
 a {
-    color: var(--cyan);
+    color: var(--accent);
     text-decoration: none;
 }
 
 a:hover {
-    color: var(--accent);
+    color: var(--text);
 }
 
 /* Hidden */
