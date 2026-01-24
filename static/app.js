@@ -1,13 +1,12 @@
 /**
  * BORAK - Client-side Application
- * Handles authentication, chat, streaming, and UI state
+ * Handles authentication, chat, streaming, sessions, and artifacts
  */
 
 // =============================================================================
 // Base Path Detection (for reverse proxy support)
 // =============================================================================
 
-// Detect base path from current URL (e.g., /borak01 from /borak01/)
 const BASE_PATH = window.location.pathname.replace(/\/$/, '') || '';
 const API_BASE = BASE_PATH + '/api';
 
@@ -24,7 +23,18 @@ const state = {
     messages: [],
     uploadedImage: null,
     lastOutput: null,
-    isGenerating: false
+    isGenerating: false,
+    // Session management
+    currentSessionId: null,
+    sessions: [],
+    hasMoreSessions: false,
+    sessionsOffset: 0,
+    // Generation control
+    generationController: null,
+    canContinue: false,
+    // Artifacts
+    artifacts: { code: [], thought: [], explanation: [] },
+    selectedArtifact: null
 };
 
 // =============================================================================
@@ -56,13 +66,37 @@ const elements = {
     clearChat: document.getElementById('clear-chat'),
     logoutBtn: document.getElementById('logout-btn'),
 
+    // Sessions
+    newChatBtn: document.getElementById('new-chat-btn'),
+    sessionList: document.getElementById('session-list'),
+    loadMoreSessions: document.getElementById('load-more-sessions'),
+
     // Chat
     messages: document.getElementById('messages'),
     chatInput: document.getElementById('chat-input'),
     sendBtn: document.getElementById('send-btn'),
+    stopBtn: document.getElementById('stop-btn'),
+    continueBtn: document.getElementById('continue-btn'),
 
-    // Canvas
-    canvasContent: document.getElementById('canvas-content')
+    // Canvas / Artifacts
+    canvasContent: document.getElementById('canvas-content'),
+    canvasPanel: document.querySelector('.canvas-panel'),
+    downloadAllBtn: document.getElementById('download-all-btn'),
+    canvasEmpty: document.getElementById('canvas-empty'),
+    artifactPreview: document.getElementById('artifact-preview'),
+    previewTitle: document.getElementById('preview-title'),
+    previewContent: document.getElementById('preview-content'),
+    copyArtifact: document.getElementById('copy-artifact'),
+    downloadArtifact: document.getElementById('download-artifact'),
+    closePreview: document.getElementById('close-preview'),
+
+    // Artifact folders
+    codeArtifacts: document.getElementById('code-artifacts'),
+    thoughtArtifacts: document.getElementById('thought-artifacts'),
+    explanationArtifacts: document.getElementById('explanation-artifacts'),
+    codeCount: document.getElementById('code-count'),
+    thoughtCount: document.getElementById('thought-count'),
+    explanationCount: document.getElementById('explanation-count')
 };
 
 // =============================================================================
@@ -139,6 +173,8 @@ async function logout() {
     state.username = null;
     state.messages = [];
     state.lastOutput = null;
+    state.currentSessionId = null;
+    state.sessions = [];
 }
 
 async function loadModels() {
@@ -157,9 +193,78 @@ async function loadModels() {
     return [];
 }
 
-async function loadChatHistory() {
+// =============================================================================
+// Session API Functions
+// =============================================================================
+
+async function createSession(name = 'New Chat') {
     try {
-        const response = await api('/chat/history');
+        const response = await api('/sessions', {
+            method: 'POST',
+            body: JSON.stringify({ name })
+        });
+        if (response.ok) {
+            const data = await response.json();
+            return data.session_id;
+        }
+    } catch (e) {
+        console.error('Failed to create session:', e);
+    }
+    return null;
+}
+
+async function loadSessions(reset = true) {
+    try {
+        if (reset) {
+            state.sessionsOffset = 0;
+        }
+        const response = await api(`/sessions?limit=20&offset=${state.sessionsOffset}`);
+        if (response.ok) {
+            const data = await response.json();
+            if (reset) {
+                state.sessions = data.sessions;
+            } else {
+                state.sessions = [...state.sessions, ...data.sessions];
+            }
+            state.hasMoreSessions = data.has_more;
+            state.sessionsOffset += data.sessions.length;
+            return state.sessions;
+        }
+    } catch (e) {
+        console.error('Failed to load sessions:', e);
+    }
+    return [];
+}
+
+async function renameSession(sessionId, newName) {
+    try {
+        const response = await api(`/sessions/${sessionId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ name: newName })
+        });
+        return response.ok;
+    } catch (e) {
+        console.error('Failed to rename session:', e);
+    }
+    return false;
+}
+
+async function deleteSession(sessionId) {
+    try {
+        const response = await api(`/sessions/${sessionId}`, {
+            method: 'DELETE'
+        });
+        return response.ok;
+    } catch (e) {
+        console.error('Failed to delete session:', e);
+    }
+    return false;
+}
+
+async function loadChatHistory(sessionId = null) {
+    try {
+        const url = sessionId ? `/chat/history?session_id=${sessionId}` : '/chat/history';
+        const response = await api(url);
         if (response.ok) {
             const data = await response.json();
             state.messages = data.messages || [];
@@ -171,11 +276,13 @@ async function loadChatHistory() {
     return [];
 }
 
-async function clearChatHistory() {
+async function clearChatHistory(sessionId = null) {
     try {
-        await api('/chat/clear', { method: 'DELETE' });
+        const url = sessionId ? `/chat/clear?session_id=${sessionId}` : '/chat/clear';
+        await api(url, { method: 'DELETE' });
         state.messages = [];
         state.lastOutput = null;
+        state.canContinue = false;
         return true;
     } catch (e) {
         console.error('Failed to clear chat:', e);
@@ -183,8 +290,70 @@ async function clearChatHistory() {
     }
 }
 
-async function sendMessage(message, model, images = null) {
-    const payload = { message, model };
+// =============================================================================
+// Artifact API Functions
+// =============================================================================
+
+async function loadArtifacts(sessionId) {
+    try {
+        const response = await api(`/sessions/${sessionId}/artifacts`);
+        if (response.ok) {
+            const data = await response.json();
+            state.artifacts = data;
+            return data;
+        }
+    } catch (e) {
+        console.error('Failed to load artifacts:', e);
+    }
+    return { code: [], thought: [], explanation: [] };
+}
+
+async function downloadArtifactsZip(sessionId) {
+    try {
+        const response = await fetch(`${API_BASE}/sessions/${sessionId}/artifacts/download`, {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `session_${sessionId}_artifacts.zip`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    } catch (e) {
+        console.error('Failed to download artifacts:', e);
+    }
+}
+
+// =============================================================================
+// Generation Control Functions
+// =============================================================================
+
+async function stopGeneration() {
+    if (!state.currentSessionId) return;
+
+    try {
+        const response = await api('/chat/stop', {
+            method: 'POST',
+            body: JSON.stringify({ session_id: state.currentSessionId })
+        });
+        if (response.ok) {
+            const data = await response.json();
+            state.canContinue = true;
+            return data;
+        }
+    } catch (e) {
+        console.error('Failed to stop generation:', e);
+    }
+    return null;
+}
+
+async function sendMessage(message, model, sessionId = null, images = null) {
+    const payload = { message, model, session_id: sessionId };
     if (images) {
         payload.images = images;
     }
@@ -194,6 +363,22 @@ async function sendMessage(message, model, images = null) {
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
+    });
+
+    return response;
+}
+
+async function continueGeneration() {
+    if (!state.currentSessionId || !state.canContinue) return;
+
+    const response = await fetch(`${API_BASE}/chat/continue`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: state.currentSessionId,
+            model: state.selectedModel
+        })
     });
 
     return response;
@@ -244,17 +429,167 @@ function updateVisionBadge() {
     elements.visionBadge.classList.toggle('hidden', !isVision);
 }
 
+// =============================================================================
+// Session UI Functions
+// =============================================================================
+
+function renderSessions() {
+    elements.sessionList.innerHTML = '';
+
+    state.sessions.forEach(session => {
+        const item = document.createElement('div');
+        item.className = `session-item ${session.id === state.currentSessionId ? 'active' : ''}`;
+        item.dataset.sessionId = session.id;
+
+        const info = document.createElement('div');
+        info.className = 'session-info';
+
+        const name = document.createElement('div');
+        name.className = 'session-name';
+        name.textContent = session.name;
+
+        const preview = document.createElement('div');
+        preview.className = 'session-preview';
+        preview.textContent = session.preview || 'Empty';
+
+        info.appendChild(name);
+        info.appendChild(preview);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'session-delete';
+        deleteBtn.title = 'Delete';
+        deleteBtn.textContent = '×';
+
+        item.appendChild(info);
+        item.appendChild(deleteBtn);
+
+        // Click to switch session
+        info.addEventListener('click', () => {
+            switchSession(session.id);
+        });
+
+        // Double-click to rename
+        name.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            startRenameSession(item, session, name);
+        });
+
+        // Delete button
+        deleteBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (confirm(`Delete "${session.name}"?`)) {
+                await handleDeleteSession(session.id);
+            }
+        });
+
+        elements.sessionList.appendChild(item);
+    });
+
+    // Show/hide load more button
+    elements.loadMoreSessions.classList.toggle('hidden', !state.hasMoreSessions);
+}
+
+function startRenameSession(item, session, nameEl) {
+    const currentName = session.name;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'session-name-input';
+    input.value = currentName;
+
+    nameEl.textContent = '';
+    nameEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    const finishRename = async () => {
+        const newName = input.value.trim() || currentName;
+        if (newName !== currentName) {
+            await renameSession(session.id, newName);
+            session.name = newName;
+        }
+        nameEl.textContent = newName;
+    };
+
+    input.addEventListener('blur', finishRename);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            input.blur();
+        } else if (e.key === 'Escape') {
+            input.value = currentName;
+            input.blur();
+        }
+    });
+}
+
+async function switchSession(sessionId) {
+    if (state.isGenerating) return;
+
+    state.currentSessionId = sessionId;
+    state.canContinue = false;
+
+    // Update active state in UI
+    document.querySelectorAll('.session-item').forEach(item => {
+        item.classList.toggle('active', parseInt(item.dataset.sessionId) === sessionId);
+    });
+
+    // Load messages and artifacts for this session
+    await loadChatHistory(sessionId);
+    await loadArtifacts(sessionId);
+
+    renderMessages();
+    renderArtifacts();
+    updateCanContinue();
+}
+
+async function handleDeleteSession(sessionId) {
+    const success = await deleteSession(sessionId);
+    if (success) {
+        state.sessions = state.sessions.filter(s => s.id !== sessionId);
+
+        // If deleted current session, switch to another
+        if (sessionId === state.currentSessionId) {
+            if (state.sessions.length > 0) {
+                await switchSession(state.sessions[0].id);
+            } else {
+                // Create a new session
+                const newId = await createSession();
+                if (newId) {
+                    await loadSessions();
+                    await switchSession(newId);
+                }
+            }
+        }
+
+        renderSessions();
+    }
+}
+
+async function handleNewChat() {
+    const sessionId = await createSession();
+    if (sessionId) {
+        await loadSessions();
+        await switchSession(sessionId);
+        renderSessions();
+    }
+}
+
+// =============================================================================
+// Message Rendering
+// =============================================================================
+
 function renderMessages() {
     elements.messages.innerHTML = '';
     state.messages.forEach(msg => {
-        addMessageToDOM(msg.role, msg.content, msg.hasImage, msg.model);
+        addMessageToDOM(msg.role, msg.content, msg.hasImage, msg.model, msg.is_partial);
     });
     scrollToBottom();
+    updateCanContinue();
 }
 
-function addMessageToDOM(role, content, hasImage = false, modelName = null) {
+function addMessageToDOM(role, content, hasImage = false, modelName = null, isPartial = false) {
     const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${role}`;
+    messageDiv.className = `message ${role}${isPartial ? ' partial' : ''}`;
 
     const roleLabel = document.createElement('div');
     roleLabel.className = 'message-role';
@@ -270,22 +605,30 @@ function addMessageToDOM(role, content, hasImage = false, modelName = null) {
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
+    // Content is sanitized via formatContent which escapes HTML first
     contentDiv.innerHTML = formatContent(content);
     messageDiv.appendChild(contentDiv);
 
     elements.messages.appendChild(messageDiv);
+
+    // Apply syntax highlighting
+    messageDiv.querySelectorAll('pre code').forEach(el => {
+        if (typeof hljs !== 'undefined') {
+            hljs.highlightElement(el);
+        }
+    });
 }
 
 function formatContent(content) {
     if (!content) return '';
 
-    // Escape HTML
+    // First escape all HTML to prevent XSS
     let html = content
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
 
-    // Code blocks
+    // Code blocks (safe since content is already escaped)
     html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
         return `<pre><code class="language-${lang || 'text'}">${code}</code></pre>`;
     });
@@ -299,8 +642,8 @@ function formatContent(content) {
     // Italic
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    // Links (href is escaped via the initial escaping)
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 
     return html;
 }
@@ -309,10 +652,24 @@ function scrollToBottom() {
     elements.messages.scrollTop = elements.messages.scrollHeight;
 }
 
+function updateCanContinue() {
+    // Check if last message is partial
+    if (state.messages.length > 0) {
+        const lastMsg = state.messages[state.messages.length - 1];
+        state.canContinue = lastMsg.role === 'assistant' && lastMsg.is_partial;
+    } else {
+        state.canContinue = false;
+    }
+    elements.continueBtn.classList.toggle('hidden', !state.canContinue || state.isGenerating);
+}
+
 function setGenerating(isGenerating) {
     state.isGenerating = isGenerating;
     elements.sendBtn.disabled = isGenerating;
     elements.chatInput.disabled = isGenerating;
+    elements.stopBtn.classList.toggle('hidden', !isGenerating);
+    elements.continueBtn.classList.toggle('hidden', isGenerating || !state.canContinue);
+
     if (isGenerating) {
         elements.sidebar.classList.add('disabled');
     } else {
@@ -320,112 +677,119 @@ function setGenerating(isGenerating) {
     }
 }
 
-function updateCanvas() {
-    if (!state.lastOutput) {
-        elements.canvasContent.innerHTML = `
-            <div class="canvas-empty">
-                <p class="canvas-empty-text">AWAITING OUTPUT</p>
-                <p class="canvas-empty-sub">Code blocks and text will render here</p>
-            </div>
-        `;
-        return;
-    }
+// =============================================================================
+// Artifact Rendering
+// =============================================================================
 
-    const codeBlocks = extractCodeBlocks(state.lastOutput);
-    let html = '';
+function renderArtifacts() {
+    const { code, thought, explanation } = state.artifacts;
 
-    if (codeBlocks.length > 0) {
-        html += '<p class="code-section-label">CODE EXTRACTED</p>';
-        codeBlocks.forEach((block, i) => {
-            const ext = getFileExtension(block.lang);
-            const langClass = block.lang ? `language-${block.lang}` : '';
-            html += `
-                <div class="code-block">
-                    <div class="code-block-header">
-                        <span class="code-block-lang">[${i + 1}] ${block.lang.toUpperCase()}</span>
-                        <button class="btn btn-small download-code" data-index="${i}">EXPORT .${ext.toUpperCase()}</button>
-                    </div>
-                    <div class="code-block-content">
-                        <pre><code class="${langClass}">${escapeHtml(block.code)}</code></pre>
-                    </div>
-                </div>
-            `;
+    // Update counts
+    elements.codeCount.textContent = `(${code.length})`;
+    elements.thoughtCount.textContent = `(${thought.length})`;
+    elements.explanationCount.textContent = `(${explanation.length})`;
+
+    // Render items
+    renderArtifactItems(elements.codeArtifacts, code, 'code');
+    renderArtifactItems(elements.thoughtArtifacts, thought, 'thought');
+    renderArtifactItems(elements.explanationArtifacts, explanation, 'explanation');
+
+    // Show/hide empty state
+    const hasArtifacts = code.length + thought.length + explanation.length > 0;
+    elements.canvasEmpty.classList.toggle('hidden', hasArtifacts);
+    elements.downloadAllBtn.classList.toggle('hidden', !hasArtifacts);
+}
+
+function renderArtifactItems(container, items, type) {
+    container.innerHTML = '';
+
+    items.forEach((item, index) => {
+        const el = document.createElement('div');
+        el.className = 'artifact-item';
+        el.dataset.artifactId = item.id;
+
+        const title = document.createElement('span');
+        title.className = 'artifact-title';
+        title.textContent = item.title || `${type} ${index + 1}`;
+        el.appendChild(title);
+
+        if (item.language) {
+            const lang = document.createElement('span');
+            lang.className = 'artifact-lang';
+            lang.textContent = item.language.toUpperCase();
+            el.appendChild(lang);
+        }
+
+        el.addEventListener('click', () => {
+            selectArtifact(item, type);
         });
-    } else {
-        html += '<p class="code-section-label">TEXT OUTPUT</p>';
-        html += `<div class="text-output">${escapeHtml(state.lastOutput)}</div>`;
-        html += `<button class="download-btn" id="download-text">EXPORT .TXT</button>`;
-    }
 
-    elements.canvasContent.innerHTML = html;
+        container.appendChild(el);
+    });
+}
 
-    // Add download handlers
-    document.querySelectorAll('.download-code').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const index = parseInt(btn.dataset.index);
-            const block = codeBlocks[index];
-            downloadFile(`output_${index + 1}.${getFileExtension(block.lang)}`, block.code);
-        });
+function selectArtifact(artifact, type) {
+    state.selectedArtifact = { ...artifact, type };
+
+    // Update active state
+    document.querySelectorAll('.artifact-item').forEach(item => {
+        item.classList.toggle('active', parseInt(item.dataset.artifactId) === artifact.id);
     });
 
-    const downloadText = document.getElementById('download-text');
-    if (downloadText) {
-        downloadText.addEventListener('click', () => {
-            downloadFile('output.txt', state.lastOutput);
-        });
+    // Show preview
+    elements.artifactPreview.classList.remove('hidden');
+    elements.previewTitle.textContent = artifact.title || 'Artifact';
+
+    // Build preview content safely
+    const pre = document.createElement('pre');
+    if (type === 'code' && artifact.language) {
+        const code = document.createElement('code');
+        code.className = `language-${artifact.language}`;
+        code.textContent = artifact.content;
+        pre.appendChild(code);
+        if (typeof hljs !== 'undefined') {
+            hljs.highlightElement(code);
+        }
+    } else {
+        pre.textContent = artifact.content;
     }
 
-    // Apply syntax highlighting
-    if (typeof hljs !== 'undefined') {
-        document.querySelectorAll('.code-block-content pre code').forEach((el) => {
-            hljs.highlightElement(el);
-        });
-    }
+    elements.previewContent.innerHTML = '';
+    elements.previewContent.appendChild(pre);
 }
 
-function extractCodeBlocks(text) {
-    const pattern = /```(\w+)?\n([\s\S]*?)```/g;
-    const blocks = [];
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-        blocks.push({
-            lang: match[1] || 'text',
-            code: match[2].trim()
-        });
-    }
-    return blocks;
+function extractArtifactsRealtime(content) {
+    // Extract counts for real-time display during streaming
+    const codeCount = (content.match(/```(\w+)?\n[\s\S]*?```/g) || []).length;
+    const thoughtCount = (content.match(/&lt;think&gt;[\s\S]*?&lt;\/think&gt;/g) || []).length;
+    const sectionCount = (content.match(/^##\s+.+?\n[\s\S]{50,}?(?=^##|\Z)/gm) || []).length;
+
+    elements.codeCount.textContent = `(${codeCount})`;
+    elements.thoughtCount.textContent = `(${thoughtCount})`;
+    elements.explanationCount.textContent = `(${sectionCount})`;
 }
 
-function getFileExtension(lang) {
-    const map = {
-        python: 'py',
-        javascript: 'js',
-        typescript: 'ts',
-        html: 'html',
-        css: 'css',
-        json: 'json',
-        yaml: 'yaml',
-        yml: 'yml',
-        markdown: 'md',
-        java: 'java',
-        cpp: 'cpp',
-        c: 'c',
-        go: 'go',
-        rust: 'rs',
-        ruby: 'rb',
-        php: 'php',
-        shell: 'sh',
-        bash: 'sh',
-        sql: 'sql'
-    };
-    return map[lang.toLowerCase()] || 'txt';
-}
+// =============================================================================
+// Helper Functions
+// =============================================================================
 
 function escapeHtml(text) {
+    if (!text) return '';
     return text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
+}
+
+function getFileExtension(lang) {
+    const map = {
+        python: 'py', javascript: 'js', typescript: 'ts',
+        html: 'html', css: 'css', json: 'json', yaml: 'yaml', yml: 'yml',
+        markdown: 'md', java: 'java', cpp: 'cpp', c: 'c',
+        go: 'go', rust: 'rs', ruby: 'rb', php: 'php',
+        shell: 'sh', bash: 'sh', sql: 'sql'
+    };
+    return map[(lang || '').toLowerCase()] || 'txt';
 }
 
 function downloadFile(filename, content) {
@@ -438,6 +802,14 @@ function downloadFile(filename, content) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        // Optional: show feedback
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+    });
 }
 
 // =============================================================================
@@ -496,7 +868,6 @@ elements.registerForm.addEventListener('submit', async (e) => {
     const result = await register(username, password);
     if (result.success) {
         showAlert('Account created. Login now.', 'success');
-        // Switch to login tab
         elements.tabBtns.forEach(b => b.classList.remove('active'));
         elements.tabBtns[0].classList.add('active');
         elements.loginForm.classList.remove('hidden');
@@ -509,7 +880,7 @@ elements.registerForm.addEventListener('submit', async (e) => {
 // Panel toggle
 elements.panelToggle.addEventListener('click', () => {
     elements.sidebar.classList.toggle('hidden');
-    elements.panelToggle.textContent = elements.sidebar.classList.contains('hidden') ? 'PANEL' : 'PANEL';
+    elements.sidebar.classList.toggle('visible');
 });
 
 // Model select
@@ -545,11 +916,20 @@ elements.removeImage.addEventListener('click', () => {
     elements.fileUpload.classList.remove('hidden');
 });
 
+// Session controls
+elements.newChatBtn.addEventListener('click', handleNewChat);
+
+elements.loadMoreSessions.addEventListener('click', async () => {
+    await loadSessions(false);
+    renderSessions();
+});
+
 // Clear chat
 elements.clearChat.addEventListener('click', async () => {
-    if (await clearChatHistory()) {
+    if (await clearChatHistory(state.currentSessionId)) {
+        state.artifacts = { code: [], thought: [], explanation: [] };
         renderMessages();
-        updateCanvas();
+        renderArtifacts();
     }
 });
 
@@ -574,6 +954,79 @@ elements.chatInput.addEventListener('input', () => {
     elements.chatInput.style.height = 'auto';
     elements.chatInput.style.height = Math.min(elements.chatInput.scrollHeight, 150) + 'px';
 });
+
+// Stop button
+elements.stopBtn.addEventListener('click', async () => {
+    await stopGeneration();
+});
+
+// Continue button
+elements.continueBtn.addEventListener('click', handleContinue);
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+    // ESC to stop generation
+    if (e.key === 'Escape' && state.isGenerating) {
+        stopGeneration();
+    }
+    // Ctrl+Enter to continue
+    if (e.ctrlKey && e.key === 'Enter' && state.canContinue && !state.isGenerating) {
+        handleContinue();
+    }
+});
+
+// Artifact folder toggle
+document.querySelectorAll('.folder-header').forEach(header => {
+    header.addEventListener('click', () => {
+        const folder = header.parentElement;
+        folder.classList.toggle('expanded');
+        const content = folder.querySelector('.folder-content');
+        content.classList.toggle('hidden');
+    });
+});
+
+// Artifact preview controls
+elements.copyArtifact.addEventListener('click', () => {
+    if (state.selectedArtifact) {
+        copyToClipboard(state.selectedArtifact.content);
+    }
+});
+
+elements.downloadArtifact.addEventListener('click', () => {
+    if (state.selectedArtifact) {
+        const ext = getFileExtension(state.selectedArtifact.language);
+        const filename = `${state.selectedArtifact.title || 'artifact'}.${ext}`;
+        downloadFile(filename, state.selectedArtifact.content);
+    }
+});
+
+elements.closePreview.addEventListener('click', () => {
+    elements.artifactPreview.classList.add('hidden');
+    state.selectedArtifact = null;
+    document.querySelectorAll('.artifact-item').forEach(item => {
+        item.classList.remove('active');
+    });
+});
+
+// Download all artifacts
+elements.downloadAllBtn.addEventListener('click', () => {
+    if (state.currentSessionId) {
+        downloadArtifactsZip(state.currentSessionId);
+    }
+});
+
+// Mobile canvas panel toggle
+if (elements.canvasPanel) {
+    elements.canvasPanel.querySelector('.canvas-header').addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
+            elements.canvasPanel.classList.toggle('expanded');
+        }
+    });
+}
+
+// =============================================================================
+// Message Handling
+// =============================================================================
 
 async function handleSendMessage() {
     const message = elements.chatInput.value.trim();
@@ -601,6 +1054,7 @@ async function handleSendMessage() {
 
     // Start streaming
     setGenerating(true);
+    state.canContinue = false;
 
     // Create assistant message placeholder
     const assistantDiv = document.createElement('div');
@@ -622,7 +1076,122 @@ async function handleSendMessage() {
     let fullResponse = '';
 
     try {
-        const response = await sendMessage(message, state.selectedModel, images);
+        const response = await sendMessage(message, state.selectedModel, state.currentSessionId, images);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const text = decoder.decode(value);
+            const lines = text.split('\n');
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const jsonStr = line.slice(6);
+                    if (!jsonStr) continue;
+
+                    try {
+                        const data = JSON.parse(jsonStr);
+
+                        if (data.type === 'session') {
+                            // Update session ID if auto-created
+                            if (!state.currentSessionId) {
+                                state.currentSessionId = data.session_id;
+                                await loadSessions();
+                                renderSessions();
+                            }
+                        } else if (data.type === 'content') {
+                            fullResponse += data.content;
+                            // Safe: formatContent escapes HTML first
+                            contentDiv.innerHTML = formatContent(fullResponse) + '<span class="streaming-cursor">|</span>';
+                            scrollToBottom();
+
+                            // Update artifact counts in real-time
+                            extractArtifactsRealtime(fullResponse);
+                        } else if (data.type === 'done') {
+                            contentDiv.innerHTML = formatContent(fullResponse);
+                            contentDiv.querySelectorAll('pre code').forEach(el => {
+                                if (typeof hljs !== 'undefined') {
+                                    hljs.highlightElement(el);
+                                }
+                            });
+                            state.messages.push({
+                                role: 'assistant',
+                                content: fullResponse,
+                                model: state.selectedModel,
+                                is_partial: false
+                            });
+                            state.lastOutput = fullResponse;
+
+                            // Reload artifacts
+                            if (state.currentSessionId) {
+                                await loadArtifacts(state.currentSessionId);
+                                renderArtifacts();
+                            }
+                        } else if (data.type === 'stopped') {
+                            assistantDiv.classList.add('partial');
+                            contentDiv.innerHTML = formatContent(fullResponse);
+                            state.messages.push({
+                                role: 'assistant',
+                                content: fullResponse,
+                                model: state.selectedModel,
+                                is_partial: true
+                            });
+                            state.canContinue = true;
+                        } else if (data.type === 'error') {
+                            const errorMsg = document.createElement('em');
+                            errorMsg.textContent = `Error: ${data.error}`;
+                            contentDiv.innerHTML = '';
+                            contentDiv.appendChild(errorMsg);
+                        }
+                    } catch (e) {
+                        console.error('Parse error:', e);
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Stream error:', error);
+        const errorMsg = document.createElement('em');
+        errorMsg.textContent = `Error: ${error.message}`;
+        contentDiv.innerHTML = '';
+        contentDiv.appendChild(errorMsg);
+    }
+
+    setGenerating(false);
+    updateCanContinue();
+}
+
+async function handleContinue() {
+    if (!state.canContinue || state.isGenerating) return;
+
+    setGenerating(true);
+
+    // Get the last assistant message element
+    const lastMessageEl = elements.messages.querySelector('.message.assistant:last-child');
+    const contentDiv = lastMessageEl?.querySelector('.message-content');
+
+    if (lastMessageEl) {
+        lastMessageEl.classList.remove('partial');
+        if (contentDiv) {
+            const cursor = document.createElement('span');
+            cursor.className = 'streaming-cursor';
+            cursor.textContent = '|';
+            contentDiv.appendChild(cursor);
+        }
+    }
+
+    let fullResponse = state.messages[state.messages.length - 1]?.content || '';
+
+    try {
+        const response = await continueGeneration();
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -648,15 +1217,52 @@ async function handleSendMessage() {
 
                         if (data.type === 'content') {
                             fullResponse += data.content;
-                            contentDiv.innerHTML = formatContent(fullResponse) + '<span class="streaming-cursor">|</span>';
+                            if (contentDiv) {
+                                contentDiv.innerHTML = formatContent(fullResponse) + '<span class="streaming-cursor">|</span>';
+                            }
                             scrollToBottom();
+                            extractArtifactsRealtime(fullResponse);
                         } else if (data.type === 'done') {
-                            contentDiv.innerHTML = formatContent(fullResponse);
-                            state.messages.push({ role: 'assistant', content: fullResponse, model: state.selectedModel });
+                            if (contentDiv) {
+                                contentDiv.innerHTML = formatContent(fullResponse);
+                                contentDiv.querySelectorAll('pre code').forEach(el => {
+                                    if (typeof hljs !== 'undefined') {
+                                        hljs.highlightElement(el);
+                                    }
+                                });
+                            }
+                            // Update the message in state
+                            if (state.messages.length > 0) {
+                                state.messages[state.messages.length - 1].content = fullResponse;
+                                state.messages[state.messages.length - 1].is_partial = false;
+                            }
                             state.lastOutput = fullResponse;
-                            updateCanvas();
+                            state.canContinue = false;
+
+                            // Reload artifacts
+                            if (state.currentSessionId) {
+                                await loadArtifacts(state.currentSessionId);
+                                renderArtifacts();
+                            }
+                        } else if (data.type === 'stopped') {
+                            if (lastMessageEl) {
+                                lastMessageEl.classList.add('partial');
+                            }
+                            if (contentDiv) {
+                                contentDiv.innerHTML = formatContent(fullResponse);
+                            }
+                            if (state.messages.length > 0) {
+                                state.messages[state.messages.length - 1].content = fullResponse;
+                                state.messages[state.messages.length - 1].is_partial = true;
+                            }
+                            state.canContinue = true;
                         } else if (data.type === 'error') {
-                            contentDiv.innerHTML = `<em>Error: ${data.error}</em>`;
+                            if (contentDiv) {
+                                const errorMsg = document.createElement('em');
+                                errorMsg.textContent = `Error: ${data.error}`;
+                                contentDiv.appendChild(document.createElement('br'));
+                                contentDiv.appendChild(errorMsg);
+                            }
                         }
                     } catch (e) {
                         console.error('Parse error:', e);
@@ -665,11 +1271,17 @@ async function handleSendMessage() {
             }
         }
     } catch (error) {
-        console.error('Stream error:', error);
-        contentDiv.innerHTML = `<em>Error: ${error.message}</em>`;
+        console.error('Continue error:', error);
+        if (contentDiv) {
+            const errorMsg = document.createElement('em');
+            errorMsg.textContent = `Error: ${error.message}`;
+            contentDiv.appendChild(document.createElement('br'));
+            contentDiv.appendChild(errorMsg);
+        }
     }
 
     setGenerating(false);
+    updateCanContinue();
 }
 
 // =============================================================================
@@ -679,9 +1291,31 @@ async function handleSendMessage() {
 async function initChat() {
     await loadModels();
     populateModels();
-    await loadChatHistory();
+
+    // Load sessions
+    await loadSessions();
+
+    // Select or create initial session
+    if (state.sessions.length > 0) {
+        state.currentSessionId = state.sessions[0].id;
+    } else {
+        const sessionId = await createSession();
+        if (sessionId) {
+            state.currentSessionId = sessionId;
+            await loadSessions();
+        }
+    }
+
+    renderSessions();
+
+    // Load chat history and artifacts for current session
+    if (state.currentSessionId) {
+        await loadChatHistory(state.currentSessionId);
+        await loadArtifacts(state.currentSessionId);
+    }
+
     renderMessages();
-    updateCanvas();
+    renderArtifacts();
 }
 
 async function init() {
