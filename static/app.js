@@ -96,7 +96,10 @@ const elements = {
     explanationArtifacts: document.getElementById('explanation-artifacts'),
     codeCount: document.getElementById('code-count'),
     thoughtCount: document.getElementById('thought-count'),
-    explanationCount: document.getElementById('explanation-count')
+    explanationCount: document.getElementById('explanation-count'),
+
+    // Mobile
+    sidebarOverlay: document.getElementById('sidebar-overlay')
 };
 
 // =============================================================================
@@ -466,6 +469,7 @@ function renderSessions() {
         // Click to switch session
         info.addEventListener('click', () => {
             switchSession(session.id);
+            handleMobileSessionSelect();
         });
 
         // Double-click to rename
@@ -879,9 +883,54 @@ elements.registerForm.addEventListener('submit', async (e) => {
 
 // Panel toggle
 elements.panelToggle.addEventListener('click', () => {
-    elements.sidebar.classList.toggle('hidden');
-    elements.sidebar.classList.toggle('visible');
+    const isVisible = elements.sidebar.classList.contains('visible');
+    if (isVisible) {
+        closeSidebar();
+    } else {
+        openSidebar();
+    }
 });
+
+// Sidebar overlay click (mobile)
+if (elements.sidebarOverlay) {
+    elements.sidebarOverlay.addEventListener('click', closeSidebar);
+}
+
+// Canvas panel toggle (mobile)
+const canvasHeader = document.querySelector('.canvas-header');
+if (canvasHeader) {
+    canvasHeader.addEventListener('click', (e) => {
+        // Only toggle on mobile
+        if (window.innerWidth <= 768) {
+            elements.canvasPanel.classList.toggle('expanded');
+        }
+    });
+}
+
+function openSidebar() {
+    elements.sidebar.classList.remove('hidden');
+    elements.sidebar.classList.add('visible');
+    if (elements.sidebarOverlay) {
+        elements.sidebarOverlay.classList.add('active');
+    }
+    document.body.style.overflow = 'hidden';
+}
+
+function closeSidebar() {
+    elements.sidebar.classList.add('hidden');
+    elements.sidebar.classList.remove('visible');
+    if (elements.sidebarOverlay) {
+        elements.sidebarOverlay.classList.remove('active');
+    }
+    document.body.style.overflow = '';
+}
+
+// Close sidebar when selecting a session on mobile
+function handleMobileSessionSelect() {
+    if (window.innerWidth <= 768) {
+        closeSidebar();
+    }
+}
 
 // Model select
 elements.modelSelect.addEventListener('change', () => {

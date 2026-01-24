@@ -1203,14 +1203,19 @@ a:hover {
    Mobile Responsive Styles
 ============================================ */
 
+/* Tablet (768px and below) */
 @media (max-width: 768px) {
+    /* Sidebar as drawer */
     .sidebar {
         position: fixed;
         left: 0;
         top: 0;
         height: 100vh;
-        z-index: 200;
+        width: 85vw;
+        max-width: 320px;
+        z-index: 1000;
         transform: translateX(-100%);
+        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.5);
     }
 
     .sidebar.visible {
@@ -1221,65 +1226,199 @@ a:hover {
         transform: translateX(-100%);
     }
 
+    /* Overlay when sidebar open */
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 900;
+    }
+
+    .sidebar-overlay.active {
+        display: block;
+    }
+
+    /* Panel toggle always visible */
     .panel-toggle {
         left: 0.75rem !important;
+        top: 0.75rem;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.75rem;
+        z-index: 100;
     }
 
+    /* Chat header adjust for toggle */
+    .chat-header {
+        padding-left: 5rem;
+    }
+
+    /* Main area full width */
     .main-area {
         flex-direction: column;
+        width: 100%;
     }
 
+    /* Chat panel takes full space */
     .chat-panel {
         flex: 1;
         border-right: none;
-        border-bottom: 1px solid var(--border);
+        min-height: 0;
     }
 
+    /* Messages container scrollable */
+    .messages-container {
+        flex: 1;
+        padding: 0.75rem;
+        padding-bottom: 1rem;
+    }
+
+    /* Message styling for mobile */
+    .message {
+        padding: 0.75rem;
+        font-size: 0.9rem;
+    }
+
+    /* Canvas/Artifacts as bottom sheet */
     .canvas-panel {
         position: fixed;
         bottom: 0;
         left: 0;
         right: 0;
-        height: 45vh;
+        height: 50vh;
+        max-height: 400px;
         background: var(--bg-card);
-        transform: translateY(calc(100% - 48px));
-        transition: transform 0.25s ease;
-        z-index: 100;
-        border-top: 1px solid var(--accent-dim);
+        transform: translateY(calc(100% - 44px));
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 500;
+        border-top: 2px solid var(--accent-dim);
+        border-radius: 12px 12px 0 0;
     }
 
     .canvas-panel.expanded {
         transform: translateY(0);
     }
 
+    /* Drag handle for bottom sheet */
     .canvas-header {
         cursor: pointer;
+        position: relative;
+        padding: 0.75rem 1rem;
+        touch-action: pan-y;
     }
 
-    .canvas-header::after {
-        content: '▲';
-        color: var(--muted);
-        font-size: 0.6rem;
+    .canvas-header::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 40px;
+        height: 4px;
+        background: var(--border-active);
+        border-radius: 2px;
     }
 
-    .canvas-panel.expanded .canvas-header::after {
-        content: '▼';
+    .canvas-header-text {
+        margin-top: 0.5rem;
     }
 
+    /* Input area fixed at bottom */
     .chat-input-container {
-        padding-bottom: 60px;
+        position: sticky;
+        bottom: 0;
+        padding: 0.75rem;
+        padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0));
+        background: var(--bg-card);
+        border-top: 1px solid var(--border);
+        z-index: 50;
     }
 
+    /* Larger touch targets */
+    .btn {
+        min-height: 44px;
+        padding: 0.75rem 1rem;
+    }
+
+    .btn-small {
+        min-height: 36px;
+        padding: 0.5rem 0.75rem;
+    }
+
+    .send-btn {
+        min-width: 70px;
+        min-height: 44px;
+    }
+
+    .chat-input {
+        min-height: 44px;
+        font-size: 16px; /* Prevents iOS zoom */
+    }
+
+    /* Session items larger */
+    .session-item {
+        padding: 0.75rem;
+        min-height: 48px;
+    }
+
+    .session-delete {
+        opacity: 1;
+        padding: 0.5rem;
+        font-size: 1rem;
+    }
+
+    /* Model select larger */
+    .model-select {
+        min-height: 44px;
+        font-size: 16px;
+    }
+
+    /* File upload larger target */
+    .file-upload {
+        padding: 1rem;
+        min-height: 60px;
+    }
+
+    /* Artifact items */
+    .artifact-item {
+        padding: 0.6rem 0.75rem;
+        min-height: 44px;
+    }
+
+    .folder-header {
+        padding: 0.6rem 0.75rem;
+        min-height: 44px;
+    }
+
+    /* Chat buttons row */
     .chat-buttons {
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
+    }
+
+    .chat-buttons .btn {
+        flex: 1;
+        min-width: 0;
     }
 }
 
+/* Phone (480px and below) */
 @media (max-width: 480px) {
-    .session-list {
-        max-height: 150px;
+    /* Even smaller sidebar */
+    .sidebar {
+        width: 90vw;
     }
 
+    /* Reduce padding */
+    .sidebar-content {
+        padding: 0.75rem;
+    }
+
+    /* Session list compact */
+    .session-list {
+        max-height: 140px;
+    }
+
+    /* Stack input and buttons */
     .chat-input-wrapper {
         flex-direction: column;
         gap: 0.5rem;
@@ -1287,10 +1426,84 @@ a:hover {
 
     .chat-buttons {
         width: 100%;
-        justify-content: flex-end;
+        gap: 0.5rem;
     }
 
+    .chat-buttons .btn {
+        flex: 1;
+    }
+
+    /* Full width send */
     .send-btn {
         width: 100%;
+    }
+
+    /* Smaller messages padding */
+    .messages-container {
+        padding: 0.5rem;
+    }
+
+    .message {
+        padding: 0.6rem;
+    }
+
+    /* Login view mobile */
+    .login-container {
+        padding: 1rem;
+    }
+
+    .login-header {
+        margin-bottom: 2rem;
+    }
+
+    .ascii-logo {
+        font-size: 0.4rem;
+    }
+
+    .umlaut-dots {
+        left: 2.8rem;
+        font-size: 0.25rem;
+    }
+
+    .auth-form {
+        padding: 1.5rem;
+    }
+
+    /* Canvas shorter on small phones */
+    .canvas-panel {
+        height: 45vh;
+        max-height: 350px;
+    }
+
+    /* Artifact preview smaller */
+    .preview-content {
+        max-height: 250px;
+    }
+}
+
+/* Landscape phone */
+@media (max-height: 500px) and (orientation: landscape) {
+    .canvas-panel {
+        height: 70vh;
+        transform: translateY(calc(100% - 36px));
+    }
+
+    .messages-container {
+        padding-bottom: 0.5rem;
+    }
+
+    .chat-input-container {
+        padding: 0.5rem;
+    }
+}
+
+/* Safe area for notched phones */
+@supports (padding: env(safe-area-inset-bottom)) {
+    .chat-input-container {
+        padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    }
+
+    .canvas-panel {
+        padding-bottom: env(safe-area-inset-bottom);
     }
 }
