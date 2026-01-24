@@ -6,84 +6,76 @@
 # Verify deployment
 curl -s http://45.159.230.42:8501/_stcore/health
 
-# SSH to VPS
+# SSH to VPS (note: port 1511, NOT 22)
 ssh -p 1511 root@45.159.230.42
 
-# View logs
-ssh -p 1511 root@45.159.230.42 "tail -50 /tmp/streamlit.log"
+# Restart service if needed
+ssh -p 1511 root@45.159.230.42 "fuser -k 8501/tcp; cd /opt/ollama-ui && source venv/bin/activate && nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true &"
 ```
 
 ## Current State
 
-- **Commit**: Uncommitted changes (need to commit!)
-- **Deployed**: Yes, running on VPS with latest code
-- **Health**: OK
+| Item | Status |
+|------|--------|
+| **Latest Commit** | `2ada959` - fix(ui): resolve overlay issues and ghost login panels |
+| **Previous Commit** | `cad18df` - docs: expand CLAUDE.md with architecture |
+| **Deployed** | Yes, running on VPS with latest code |
+| **GitHub** | Pushed, in sync with local |
+| **Health** | OK |
 
-## What Changed Since Last Commit
+## What Changed This Session
 
-Major refactor: **Background generation system** to survive WebSocket drops.
+### Commit 1: `cad18df` - CLAUDE.md Update
+- Added architecture diagram showing background thread pattern
+- Added critical warning about canvas_col indentation bug
+- Added known issues & fixes table
+- Added app.py structure with line references
 
-| Change | Why |
-|--------|-----|
-| Background thread generation | WebSocket was dropping during long generations |
-| File-based state persistence | Recovery after reconnect |
-| Polling instead of streaming | More robust to connection issues |
-| Fixed canvas_col indentation | Layout was broken |
+### Commit 2: `2ada959` - UI Overlay Fixes
+| Fix | Details |
+|-----|---------|
+| Panel toggle position | Changed `left: 0.75rem` → `left: calc(280px + 0.75rem)` to not overlay sidebar |
+| CONNECTED badge | Moved from `position: fixed` to inline inside sidebar |
+| Ghost login forms | Added `login-page`/`chat-page` body classes via JS |
+| Form CSS scoping | Changed from global `[data-testid="stForm"]` to `.login-page [data-testid="stForm"]` |
+| Toggle on login | Hidden via `.login-page #panel-toggle { display: none }` |
 
-## Uncommitted Files
+## Key Code Locations
 
-```bash
-git status
-# modified: app.py
-# modified: dev/active/borak-context.md
-# modified: dev/active/borak-tasks.md
-# modified: dev/active/handoff.md
-```
+| Feature | Location | Notes |
+|---------|----------|-------|
+| Page class JS function | app.py:673-705 | `get_page_js()` returns login-page or chat-page |
+| JS injection | app.py:724 | Called after session state init |
+| Panel toggle CSS | app.py:147-183 | Includes login-page hiding |
+| Form CSS scoping | app.py:61-70 | Only `.login-page` gets form brackets |
+| CONNECTED badge | app.py:845-851 | Now inside sidebar, not fixed |
+| Column layout | app.py:854 | `chat_col, canvas_col = st.columns([3, 2])` |
 
-## Critical Code Locations
+## ⚠️ CRITICAL WARNINGS
 
-| Feature | Location |
-|---------|----------|
-| Background generation | app.py:500-600 |
-| ChromaDB functions | app.py:400-500 |
-| Polling loop | app.py:871-904 |
-| Column layout | app.py:828 (chat_col, canvas_col) |
-
-## ⚠️ INDENTATION WARNING
-
-The column layout is sensitive to indentation:
-
+### 1. Indentation Bug (Fixed Twice!)
 ```python
-# Line 830 and 906 MUST have same indent (4 spaces)
+# Lines ~856 and ~932 MUST have same indent (4 spaces)
     with chat_col:    # 4 spaces
         ...
     with canvas_col:  # 4 spaces - SAME LEVEL!
         ...
 ```
-
 If `canvas_col` has 8 spaces, it nests inside `chat_col` and breaks layout.
 
-## Test After Resume
+### 2. SSH Port
+VPS uses port **1511**, not 22!
 
-1. **Layout check**: Login, verify TERMINAL on left, OUTPUT on right
-2. **Generation test**: Send a message, verify response appears
-3. **Recovery test**: Refresh mid-generation, verify it recovers
+### 3. Page Class Injection
+The `get_page_js()` function must be called AFTER session state initialization but BEFORE rendering any content.
 
-## Commands to Commit
+## Test Checklist
 
-```bash
-cd /Users/zeidalqadri/projects/ollama-chat-service
-git add app.py dev/
-git commit -m "feat: background generation with WebSocket recovery
-
-- Background thread for Ollama API calls (survives disconnects)
-- File-based state persistence for recovery
-- Polling pattern instead of inline streaming
-- Fixed column indentation bug
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
-git push origin master
-```
+1. **Login page**: No panel toggle button visible
+2. **After login**: Panel toggle appears to right of sidebar (not overlapping)
+3. **Chat area**: No ghost login form elements
+4. **CONNECTED badge**: At bottom of sidebar content, not floating
+5. **Generation**: Messages generate and display correctly
 
 ## Architecture Summary
 
@@ -91,6 +83,7 @@ git push origin master
 Browser ←WebSocket→ Streamlit (port 8501)
                          ↓
                     app.py
+                         ├── get_page_js() → Injects login-page/chat-page class
                          ├── Background Thread (daemon)
                          │   └── Writes to gen_{user_id}.json
                          ├── Main Thread
@@ -100,8 +93,19 @@ Browser ←WebSocket→ Streamlit (port 8501)
                          └── Ollama API (localhost:11434)
 ```
 
+## Pending Work (Next Session)
+
+| Priority | Task |
+|----------|------|
+| HIGH | Test background generation recovery by refreshing mid-generation |
+| MEDIUM | Test vision models with actual image uploads |
+| MEDIUM | Add STOP button to cancel long generations |
+| LOW | Add conversation export feature |
+
 ## Session Stats
 
-- Duration: ~3 hours
-- Major features: 4 (background gen, ChromaDB, UI lock, JS toggle)
-- Bugs fixed: 4 (WebSocket drop, rerun loop, panel interrupt, layout)
+- Session: Jan 25, 2026
+- Commits: 2 (CLAUDE.md update + UI overlay fixes)
+- Files modified: 2 (CLAUDE.md, app.py)
+- Bugs fixed: 4 (panel overlay, badge overlay, ghost forms, toggle on login)
+- Deployed & pushed: ✅
