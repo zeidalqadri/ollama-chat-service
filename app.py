@@ -6,6 +6,8 @@ import os
 import base64
 import re
 import json
+import threading
+import time
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -508,6 +510,88 @@ def clear_stream_cache(user_id):
     except Exception:
         pass
 
+# Background generation - survives WebSocket drops
+def get_generation_path(user_id):
+    return os.path.join(STREAM_CACHE_DIR, f"gen_{user_id}.json")
+
+def start_background_generation(user_id, messages, model, images=None):
+    """Start generation in background thread - survives connection drops."""
+    gen_path = get_generation_path(user_id)
+
+    # Initialize generation state
+    state = {
+        "status": "running",
+        "content": "",
+        "error": None,
+        "started": datetime.now().isoformat(),
+        "updated": datetime.now().isoformat(),
+        "usage": None
+    }
+    with open(gen_path, 'w') as f:
+        json.dump(state, f)
+
+    def generate():
+        nonlocal state
+        try:
+            payload = {"model": model, "messages": messages, "stream": True}
+            if images:
+                if messages and messages[-1]["role"] == "user":
+                    messages[-1]["images"] = images
+
+            with requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=600, stream=True) as response:
+                if response.ok:
+                    for line in response.iter_lines():
+                        if line:
+                            chunk = json.loads(line)
+                            content = chunk.get("message", {}).get("content", "")
+                            if content:
+                                state["content"] += content
+                                state["updated"] = datetime.now().isoformat()
+                                with open(gen_path, 'w') as f:
+                                    json.dump(state, f)
+                            if chunk.get("done"):
+                                state["status"] = "complete"
+                                state["usage"] = {
+                                    "prompt_tokens": chunk.get("prompt_eval_count", 0),
+                                    "completion_tokens": chunk.get("eval_count", 0)
+                                }
+                                with open(gen_path, 'w') as f:
+                                    json.dump(state, f)
+                else:
+                    state["status"] = "error"
+                    state["error"] = f"HTTP {response.status_code}"
+                    with open(gen_path, 'w') as f:
+                        json.dump(state, f)
+        except Exception as e:
+            state["status"] = "error"
+            state["error"] = str(e)
+            with open(gen_path, 'w') as f:
+                json.dump(state, f)
+
+    thread = threading.Thread(target=generate, daemon=True)
+    thread.start()
+    return gen_path
+
+def get_generation_state(user_id):
+    """Get current generation state from file."""
+    gen_path = get_generation_path(user_id)
+    try:
+        if os.path.exists(gen_path):
+            with open(gen_path, 'r') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+def clear_generation(user_id):
+    """Clear generation state file."""
+    gen_path = get_generation_path(user_id)
+    try:
+        if os.path.exists(gen_path):
+            os.remove(gen_path)
+    except Exception:
+        pass
+
 # Ollama
 def get_available_models():
     try:
@@ -610,8 +694,8 @@ if "uploaded_images" not in st.session_state:
     st.session_state.uploaded_images = []
 if "last_output" not in st.session_state:
     st.session_state.last_output = None
-if "is_streaming" not in st.session_state:
-    st.session_state.is_streaming = False
+if "generating" not in st.session_state:
+    st.session_state.generating = False
 
 # Auth
 if not st.session_state.authenticated:
@@ -669,15 +753,20 @@ else:
         if not st.session_state.messages:
             st.session_state.messages = load_chat_history(st.session_state.user_id)
 
-        # Check for interrupted stream and recover
-        cached = load_stream_cache(st.session_state.user_id)
-        if cached and cached.get("content") and not cached.get("complete"):
-            # There was an interrupted response - add it
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": cached["content"] + "\n\n*[Recovered from interruption]*"
-            })
-            clear_stream_cache(st.session_state.user_id)
+        # Check for in-progress or completed background generation (recovery after WebSocket drop)
+        gen_state = get_generation_state(st.session_state.user_id)
+        if gen_state:
+            if gen_state["status"] == "running":
+                # Generation still running - resume polling
+                st.session_state.generating = True
+            elif gen_state["status"] == "complete" and gen_state.get("content"):
+                # Completed but wasn't saved - recover it
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": gen_state["content"] + "\n\n*[Recovered after reconnect]*"
+                })
+                st.session_state.last_output = gen_state["content"]
+                clear_generation(st.session_state.user_id)
 
         st.session_state.history_loaded = True
 
@@ -768,57 +857,51 @@ else:
                         st.markdown('<span style="color:#00cccc;font-size:0.65rem;letter-spacing:0.1em">◎ IMAGE ATTACHED</span>', unsafe_allow_html=True)
                     st.markdown(prompt)
 
-            # Get streaming response
-            with chat_container:
-                with st.chat_message("assistant"):
-                    # Lock UI during streaming
-                    st.markdown('<script>setStreaming(true);</script>', unsafe_allow_html=True)
+            # Start background generation (survives WebSocket drops)
+            api_messages = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+            start_background_generation(
+                st.session_state.user_id,
+                api_messages,
+                selected_model,
+                st.session_state.uploaded_images if has_image else None
+            )
+            st.session_state.generating = True
+            st.rerun()
 
-                    response_placeholder = st.empty()
-                    full_response = ""
-                    usage_data = None
+        # Poll for generation progress
+        if st.session_state.get("generating"):
+            gen_state = get_generation_state(st.session_state.user_id)
+            if gen_state:
+                with chat_container:
+                    with st.chat_message("assistant"):
+                        if gen_state["status"] == "running":
+                            st.markdown(gen_state["content"] + "▌" if gen_state["content"] else "◉ *Generating...*")
+                            time.sleep(0.5)
+                            st.rerun()
+                        elif gen_state["status"] == "complete":
+                            full_response = gen_state["content"]
+                            st.markdown(full_response if full_response else "*No response received*")
+                            st.session_state.last_output = full_response
 
-                    # Prepare messages for API (without has_image field)
-                    api_messages = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+                            # Log usage
+                            usage_data = gen_state.get("usage")
+                            if usage_data:
+                                log_usage(st.session_state.user_id, selected_model, usage_data.get("prompt_tokens", 0), usage_data.get("completion_tokens", 0))
 
-                    try:
-                        for chunk in chat_with_ollama_stream(api_messages, selected_model, st.session_state.uploaded_images if has_image else None):
-                            if isinstance(chunk, dict) and chunk.get("__done__"):
-                                usage_data = chunk.get("data", {})
-                                # Mark stream as complete
-                                save_stream_chunk(st.session_state.user_id, full_response, is_complete=True)
-                            elif isinstance(chunk, str):
-                                if chunk.startswith("Error:"):
-                                    full_response = chunk
-                                    response_placeholder.markdown(chunk)
-                                else:
-                                    full_response += chunk
-                                    response_placeholder.markdown(full_response + "▌")
-                                    # Save to disk every chunk for crash recovery
-                                    save_stream_chunk(st.session_state.user_id, full_response, is_complete=False)
-                                    st.session_state.last_output = full_response
-                    except Exception as e:
-                        if full_response:
-                            response_placeholder.markdown(full_response + "\n\n*[Generation interrupted]*")
-                        else:
-                            full_response = f"Error: {str(e)}"
-                            response_placeholder.markdown(full_response)
+                            # Save to DB and Chroma
+                            save_message(st.session_state.user_id, "assistant", full_response, selected_model)
+                            chroma_save_message(st.session_state.user_id, "assistant", full_response, selected_model)
+                            st.session_state.messages.append({"role": "assistant", "content": full_response})
 
-                    response_placeholder.markdown(full_response if full_response else "*No response received*")
-                    st.session_state.last_output = full_response
+                            # Cleanup
+                            st.session_state.uploaded_images = []
+                            st.session_state.generating = False
+                            clear_generation(st.session_state.user_id)
 
-                    if usage_data:
-                        log_usage(st.session_state.user_id, selected_model, usage_data.get("prompt_eval_count", 0), usage_data.get("eval_count", 0))
-
-                    # Unlock UI after streaming
-                    st.markdown('<script>setStreaming(false);</script>', unsafe_allow_html=True)
-
-            # Save assistant message to DB and Chroma
-            save_message(st.session_state.user_id, "assistant", full_response, selected_model)
-            chroma_save_message(st.session_state.user_id, "assistant", full_response, selected_model)
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
-            st.session_state.uploaded_images = []  # Clear after sending
-            clear_stream_cache(st.session_state.user_id)  # Clear cache on successful completion
+                        elif gen_state["status"] == "error":
+                            st.markdown(f"*Error: {gen_state.get('error', 'Unknown error')}*")
+                            st.session_state.generating = False
+                            clear_generation(st.session_state.user_id)
 
     with canvas_col:
         st.markdown('<p style="color:#606060;font-size:0.7rem;letter-spacing:0.15em;border-bottom:1px solid #1a1a1a;padding-bottom:0.75rem;margin-bottom:1rem">[ OUTPUT ]</p>', unsafe_allow_html=True)

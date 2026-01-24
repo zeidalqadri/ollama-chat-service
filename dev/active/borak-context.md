@@ -1,6 +1,6 @@
 # BÖRAK Chat Service - Session Context
 
-**Last Updated**: 2026-01-25 00:15 UTC
+**Last Updated**: 2026-01-25 00:35 UTC
 **Status**: Deployed and functional
 
 ## Current State
@@ -10,96 +10,117 @@
 - **Health**: OK
 - **VPS**: 45.159.230.42, SSH port 1511
 
-### Features Implemented This Session
+## Major Changes This Session
 
-1. **Streaming Responses** ✅
-   - Real-time token streaming with `▌` cursor
-   - Uses generator pattern with `chat_with_ollama_stream()`
-   - Removed problematic `st.rerun()` that caused loops
+### 1. Background Generation System ✅
+Replaced inline streaming with background thread generation to survive WebSocket drops.
 
-2. **Chat Persistence** ✅
-   - SQLite: `chat_history` table (fallback)
-   - ChromaDB: Vector storage with embeddings at `/opt/ollama-ui/chroma_db`
-   - Stream cache: JSON files at `/opt/ollama-ui/stream_cache/`
+**Architecture:**
+```
+User submits prompt → Background thread starts → Thread writes to gen_{user_id}.json
+                                                          ↓
+Streamlit polls file every 0.5s ← Displays progress ← Even if WebSocket drops, thread continues
+                                                          ↓
+On reconnect → Reads file → Resumes display or shows "[Recovered after reconnect]"
+```
 
-3. **Crash Recovery** ✅
-   - Every token saved to `stream_cache/stream_{user_id}.json`
-   - On login, checks for incomplete streams and recovers
-   - Shows `*[Recovered from interruption]*` marker
+**Key Functions (app.py):**
+- `start_background_generation()` - Starts daemon thread for Ollama API call
+- `get_generation_state()` - Reads current state from JSON file
+- `clear_generation()` - Cleans up after completion
 
-4. **UI Lock During Streaming** ✅
-   - Sidebar dims to 50% with "◉ GENERATING..." overlay
-   - All widgets disabled via `pointer-events: none`
-   - Prevents accidental interruption
+### 2. ChromaDB Integration ✅
+Vector storage for chat history with embeddings.
 
-5. **JavaScript Panel Toggle** ✅
-   - `◀ PANEL` button in top-left corner
-   - Pure JS toggle, no Streamlit rerun
-   - Safe to use during streaming
+**Functions:**
+- `chroma_save_message()` - Save with embedding
+- `chroma_load_history()` - Load user's history
+- `chroma_clear_user()` - Clear user's data
 
-## Key Files Modified
+**Storage:** `/opt/ollama-ui/chroma_db/`
 
-| File | Changes |
-|------|---------|
-| `app.py` | Added ChromaDB, streaming, UI lock, JS toggle |
-| `chroma_db/` | New - ChromaDB persistent storage |
-| `stream_cache/` | New - Streaming recovery cache |
+### 3. UI Lock During Generation ✅
+CSS `.streaming-active` class + JavaScript to lock sidebar during generation.
 
-## Architecture Decisions
+### 4. JavaScript Panel Toggle ✅
+Pure JS toggle button `◀ PANEL` - doesn't trigger Streamlit rerun.
 
-### Why ChromaDB?
-- Persistent vector storage with embeddings
-- Enables future semantic search over chat history
-- Self-contained (no external service needed)
+## Critical Bug Fixes
 
-### Why Stream Cache?
-- Immediate disk write on every token
-- Survives crashes, page refreshes, browser closes
-- JSON format for easy debugging
+### WebSocket Drop Issue
+**Problem:** Streamlit's WebSocket would close during long generations, killing the response.
+**Solution:** Background thread generation with file-based state persistence.
 
-### Why JS Panel Toggle?
-- Streamlit buttons trigger `st.rerun()`
-- Rerun kills streaming generator mid-execution
-- Pure JS/CSS toggle doesn't touch Python
+### Indentation Bug (Fixed Twice!)
+**Problem:** `canvas_col` was nested inside `chat_col` (8 spaces instead of 4).
+**Symptom:** Login form appeared in OUTPUT column.
+**Solution:** Fixed indentation so both columns are siblings.
+
+### Rerun Loop
+**Problem:** `st.rerun()` after streaming caused infinite loop.
+**Solution:** Removed unnecessary rerun; use polling pattern instead.
+
+## File Structure
+
+```
+app.py (945 lines)
+├── Lines 1-30: Imports and config
+├── Lines 300-350: Ollama streaming function
+├── Lines 400-500: ChromaDB and cache functions
+├── Lines 500-600: Background generation functions
+├── Lines 700-745: Auth (login/register)
+├── Lines 747-905: Chat (else block)
+│   ├── 828: chat_col, canvas_col = st.columns([3, 2])
+│   ├── 830: with chat_col: (4 spaces indent)
+│   ├── 871-904: Polling for generation progress
+│   └── 906: with canvas_col: (4 spaces indent - MUST match chat_col!)
+└── Lines 906-945: Output panel
+```
+
+## Critical Knowledge
+
+### Indentation Rules
+```python
+# CORRECT - both at 4 spaces (inside else block)
+    with chat_col:
+        ...
+    with canvas_col:  # Same indent level!
+        ...
+
+# WRONG - canvas_col nested inside chat_col
+    with chat_col:
+        ...
+        with canvas_col:  # 8 spaces = WRONG!
+```
+
+### SSH Port
+```
+Port 1511 (NOT 22!)
+```
+
+### Service Commands
+```bash
+# Health check
+curl -s http://45.159.230.42:8501/_stcore/health
+
+# Restart
+ssh -p 1511 root@45.159.230.42 "pkill streamlit; fuser -k 8501/tcp; sleep 1; cd /opt/ollama-ui && source venv/bin/activate && nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true > /tmp/streamlit.log 2>&1 &"
+
+# Deploy
+scp -P 1511 app.py root@45.159.230.42:/opt/ollama-ui/app.py
+
+# Logs
+ssh -p 1511 root@45.159.230.42 "tail -50 /tmp/streamlit.log"
+```
+
+## Pending Work
+
+1. **Test background generation recovery** - Refresh mid-generation, verify it recovers
+2. **Add STOP button** - Cancel long generations
+3. **Test vision models** - Upload images with llava/moondream
+4. **Commit changes** - Current changes uncommitted
 
 ## Known Issues
 
-1. **Long generations (6+ min)**: May timeout or lose connection
-2. **First load after Chroma install**: Slightly slower (model loading)
-3. **File uploader label warning**: Cosmetic warning in logs
-
-## Critical Commands
-
-```bash
-# Check health
-curl -s http://45.159.230.42:8501/_stcore/health
-
-# Restart service
-ssh -p 1511 root@45.159.230.42 "pkill streamlit; fuser -k 8501/tcp; cd /opt/ollama-ui && source venv/bin/activate && nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true > /tmp/streamlit.log 2>&1 &"
-
-# Deploy changes
-scp -P 1511 app.py root@45.159.230.42:/opt/ollama-ui/app.py
-
-# Check logs
-ssh -p 1511 root@45.159.230.42 "tail -50 /tmp/streamlit.log"
-
-# Check Ollama
-ssh -p 1511 root@45.159.230.42 "journalctl -u ollama -n 30"
-```
-
-## Session Summary
-
-Started with: Basic Streamlit chat with vision support, cypherpunk UI
-Ended with: Production-ready chat with streaming, persistence, crash recovery, UI lock
-
-### Commits Made
-- `1a640f0`: docs: add project context for Claude Code
-- `2338276`: fix(ui): force sidebar visible and hide broken icons
-- Plus uncommitted changes for streaming/persistence (need to commit)
-
-## Next Steps
-
-1. **Commit current changes** - streaming, ChromaDB, UI lock
-2. **Test vision models** - image upload with llava/moondream
-3. **Add STOP button** - cancel long-running generations
-4. **Semantic search** - use ChromaDB embeddings for "find similar" feature
+1. **File uploader label warning** - Cosmetic only, non-blocking
+2. **Port 8501 sometimes held** - Use `fuser -k 8501/tcp` before restart
