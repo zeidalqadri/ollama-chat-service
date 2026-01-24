@@ -99,8 +99,23 @@ CUSTOM_CSS = """
     .stButton > button:focus, .stFormSubmitButton > button:focus { outline: 1px solid var(--accent) !important; outline-offset: 2px !important; }
     .stFormSubmitButton > button { width: 100%; margin-top: 1rem; }
 
-    /* Sidebar - control panel */
-    [data-testid="stSidebar"] { background: var(--bg-card) !important; border-right: 1px solid var(--border) !important; }
+    /* Sidebar - control panel - force always visible */
+    [data-testid="stSidebar"] {
+        background: var(--bg-card) !important;
+        border-right: 1px solid var(--border) !important;
+        transform: none !important;
+        width: 280px !important;
+        min-width: 280px !important;
+    }
+    [data-testid="stSidebar"] > div:first-child {
+        width: 280px !important;
+    }
+    [data-testid="collapsedControl"] { display: none !important; }
+    button[kind="header"] { display: none !important; }
+    [data-testid="stSidebarCollapseButton"] { display: none !important; }
+    .stSidebar button[kind="headerNoPadding"] { display: none !important; }
+    section[data-testid="stSidebar"] button:has(span.material-symbols-outlined) { display: none !important; }
+    span.material-symbols-outlined { font-family: 'Material Symbols Outlined' !important; }
     [data-testid="stSidebar"] [data-testid="stWidgetLabel"] { color: var(--muted) !important; font-size: 0.7rem !important; letter-spacing: 0.1em !important; }
     [data-testid="stSidebar"] .stSelectbox > div > div,
     [data-testid="stSidebar"] [data-baseweb="select"] > div {
