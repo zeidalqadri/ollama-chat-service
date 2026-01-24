@@ -338,6 +338,7 @@ function updateCanvas() {
         html += '<p class="code-section-label">CODE EXTRACTED</p>';
         codeBlocks.forEach((block, i) => {
             const ext = getFileExtension(block.lang);
+            const langClass = block.lang ? `language-${block.lang}` : '';
             html += `
                 <div class="code-block">
                     <div class="code-block-header">
@@ -345,7 +346,7 @@ function updateCanvas() {
                         <button class="btn btn-small download-code" data-index="${i}">EXPORT .${ext.toUpperCase()}</button>
                     </div>
                     <div class="code-block-content">
-                        <pre><code>${escapeHtml(block.code)}</code></pre>
+                        <pre><code class="${langClass}">${escapeHtml(block.code)}</code></pre>
                     </div>
                 </div>
             `;
@@ -371,6 +372,13 @@ function updateCanvas() {
     if (downloadText) {
         downloadText.addEventListener('click', () => {
             downloadFile('output.txt', state.lastOutput);
+        });
+    }
+
+    // Apply syntax highlighting
+    if (typeof hljs !== 'undefined') {
+        document.querySelectorAll('.code-block-content pre code').forEach((el) => {
+            hljs.highlightElement(el);
         });
     }
 }

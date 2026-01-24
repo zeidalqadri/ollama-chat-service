@@ -304,6 +304,9 @@ body {
     margin-bottom: 1rem;
     font-size: 0.8rem;
     border-left: 3px solid;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 .alert-error {
@@ -840,4 +843,70 @@ a:hover {
 .disabled {
     pointer-events: none;
     opacity: 0.5;
+}
+
+/* ============================================
+   Syntax Highlighting Overrides
+============================================ */
+
+/* Override highlight.js background to match theme */
+.hljs {
+    background: transparent !important;
+    padding: 0 !important;
+}
+
+/* Soothing pastel syntax colors */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-name {
+    color: #c9a0dc;  /* Soft lavender for keywords */
+}
+
+.hljs-string,
+.hljs-attr {
+    color: #a8d4a0;  /* Soft sage for strings */
+}
+
+.hljs-number,
+.hljs-literal {
+    color: #d4a88c;  /* Soft peach for numbers */
+}
+
+.hljs-function,
+.hljs-title {
+    color: #8cc4d4;  /* Soft cyan for functions */
+}
+
+.hljs-comment,
+.hljs-quote {
+    color: #6b6b78;  /* Muted gray for comments */
+    font-style: normal;
+}
+
+.hljs-variable,
+.hljs-template-variable {
+    color: #d4b08c;  /* Soft amber for variables */
+}
+
+.hljs-type,
+.hljs-class .hljs-title {
+    color: #b8c4d4;  /* Soft blue-gray for types */
+}
+
+.hljs-params {
+    color: var(--text);
+}
+
+.hljs-attr {
+    color: #c4a8b8;  /* Soft rose for attributes */
+}
+
+.hljs-meta {
+    color: #8c9cac;  /* Muted blue for meta */
+}
+
+.hljs-punctuation,
+.hljs-operator {
+    color: var(--text-secondary);
 }
