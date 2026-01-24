@@ -57,8 +57,8 @@ CUSTOM_CSS = """
     #MainMenu, footer, header, .stDeployButton { display: none !important; }
     * { font-family: var(--font) !important; box-sizing: border-box; }
 
-    /* Form container with corner brackets */
-    [data-testid="stForm"] {
+    /* Form container with corner brackets - only on login page */
+    .login-page [data-testid="stForm"] {
         background: var(--bg-card);
         border: 1px solid var(--border);
         padding: 2rem;
@@ -66,8 +66,8 @@ CUSTOM_CSS = """
         margin: 0 auto;
         position: relative;
     }
-    [data-testid="stForm"]::before { content: '┌'; position: absolute; top: -1px; left: -1px; color: var(--accent); font-size: 1rem; }
-    [data-testid="stForm"]::after { content: '┘'; position: absolute; bottom: -1px; right: -1px; color: var(--accent); font-size: 1rem; }
+    .login-page [data-testid="stForm"]::before { content: '┌'; position: absolute; top: -1px; left: -1px; color: var(--accent); font-size: 1rem; }
+    .login-page [data-testid="stForm"]::after { content: '┘'; position: absolute; bottom: -1px; right: -1px; color: var(--accent); font-size: 1rem; }
 
     /* Tabs - terminal style */
     .stTabs [data-baseweb="tab-list"] { background: transparent; border-bottom: 1px solid var(--border); gap: 0; }
@@ -143,11 +143,11 @@ CUSTOM_CSS = """
         margin-left: 0 !important;
     }
 
-    /* Floating toggle button */
+    /* Floating toggle button - positioned after sidebar */
     #panel-toggle {
         position: fixed !important;
         top: 0.75rem;
-        left: 0.75rem;
+        left: calc(280px + 0.75rem);
         z-index: 9999;
         background: var(--bg-card) !important;
         border: 1px solid var(--accent-dim) !important;
@@ -165,6 +165,21 @@ CUSTOM_CSS = """
     }
     .sidebar-hidden #panel-toggle {
         left: 0.75rem;
+    }
+
+    /* Login page - no toggle button, form isolation */
+    .login-page #panel-toggle { display: none !important; }
+    .login-page [data-testid="stForm"] {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        padding: 2rem;
+        max-width: 400px;
+        margin: 0 auto;
+        position: relative;
+    }
+    /* Chat page - ensure forms from login don't bleed through */
+    .chat-page [data-testid="stForm"]:not([data-testid*="chat"]) {
+        display: none !important;
     }
 
     /* Streaming mode - lock UI to prevent interrupts */
@@ -655,31 +670,39 @@ st.set_page_config(page_title="BÖRAK", page_icon="", layout="wide", initial_sid
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # JavaScript-based panel toggle and streaming lock - no Python rerun
-PANEL_TOGGLE_JS = '''
-<button id="panel-toggle" onclick="togglePanel()">◀ PANEL</button>
+def get_page_js(is_authenticated: bool) -> str:
+    page_class = "chat-page" if is_authenticated else "login-page"
+    toggle_button = '<button id="panel-toggle" onclick="togglePanel()">◀ PANEL</button>' if is_authenticated else ''
+    return f'''
+{toggle_button}
 <script>
-function togglePanel() {
+(function() {{
+    const app = document.querySelector('.stApp');
+    // Clear old page classes and set current
+    app.classList.remove('login-page', 'chat-page');
+    app.classList.add('{page_class}');
+}})();
+function togglePanel() {{
     const app = document.querySelector('.stApp');
     const btn = document.getElementById('panel-toggle');
-    if (app.classList.contains('sidebar-hidden')) {
+    if (app.classList.contains('sidebar-hidden')) {{
         app.classList.remove('sidebar-hidden');
         btn.textContent = '◀ PANEL';
-    } else {
+    }} else {{
         app.classList.add('sidebar-hidden');
         btn.textContent = '▶ PANEL';
-    }
-}
-function setStreaming(active) {
+    }}
+}}
+function setStreaming(active) {{
     const app = document.querySelector('.stApp');
-    if (active) {
+    if (active) {{
         app.classList.add('streaming-active');
-    } else {
+    }} else {{
         app.classList.remove('streaming-active');
-    }
-}
+    }}
+}}
 </script>
 '''
-st.markdown(PANEL_TOGGLE_JS, unsafe_allow_html=True)
 
 # Session state
 if "authenticated" not in st.session_state:
@@ -696,6 +719,9 @@ if "last_output" not in st.session_state:
     st.session_state.last_output = None
 if "generating" not in st.session_state:
     st.session_state.generating = False
+
+# Inject page class JS (must be after session state init)
+st.markdown(get_page_js(st.session_state.authenticated), unsafe_allow_html=True)
 
 # Auth
 if not st.session_state.authenticated:
@@ -816,9 +842,10 @@ else:
             st.session_state.history_loaded = False
             st.rerun()
 
+        # Status badge - inside sidebar, not fixed
         st.markdown(
-            '<div style="position:fixed;bottom:1rem;left:1rem">'
-            '<p style="color:#006633;font-size:0.7rem;letter-spacing:0.1em" class="status-online">● CONNECTED</p>'
+            '<div style="margin-top:2rem;padding-top:1rem;border-top:1px solid #1a1a1a">'
+            '<p style="color:#006633;font-size:0.7rem;letter-spacing:0.1em">● CONNECTED</p>'
             '<p style="color:#606060;font-size:0.6rem;margin-top:0.25rem">LOCAL · SECURE</p>'
             '</div>',
             unsafe_allow_html=True
