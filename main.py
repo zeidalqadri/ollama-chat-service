@@ -147,10 +147,10 @@ def save_message(user_id: int, role: str, content: str, model: str):
 def load_chat_history(user_id: int, limit: int = 50) -> List[dict]:
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT role, content FROM chat_history WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, limit))
+    c.execute("SELECT role, content, model FROM chat_history WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, limit))
     rows = c.fetchall()
     conn.close()
-    return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+    return [{"role": r["role"], "content": r["content"], "model": r["model"]} for r in reversed(rows)]
 
 def clear_chat_history(user_id: int):
     conn = get_db()
