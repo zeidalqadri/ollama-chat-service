@@ -1,0 +1,14 @@
+services:
+  borak:
+    build: .
+    container_name: borak
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - DATA_DIR=/app/data
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

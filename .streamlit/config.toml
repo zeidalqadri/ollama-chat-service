@@ -1,0 +1,14 @@
+[theme]
+# Minimalist Monochromatic with Pastel Accents
+primaryColor = "#a8b5c4"          # Pastel slate blue - highlights
+backgroundColor = "#0d0d0d"        # Near black - main background
+secondaryBackgroundColor = "#1a1a1a"  # Charcoal - cards/sidebar
+textColor = "#e8e8e8"             # Off-white - primary text
+font = "monospace"
+
+[server]
+headless = true
+runOnSave = true
+
+[browser]
+gatherUsageStats = false
