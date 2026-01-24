@@ -239,18 +239,18 @@ function updateVisionBadge() {
 function renderMessages() {
     elements.messages.innerHTML = '';
     state.messages.forEach(msg => {
-        addMessageToDOM(msg.role, msg.content, msg.hasImage);
+        addMessageToDOM(msg.role, msg.content, msg.hasImage, msg.model);
     });
     scrollToBottom();
 }
 
-function addMessageToDOM(role, content, hasImage = false) {
+function addMessageToDOM(role, content, hasImage = false, modelName = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
 
     const roleLabel = document.createElement('div');
     roleLabel.className = 'message-role';
-    roleLabel.textContent = role === 'user' ? 'USER' : 'ASSISTANT';
+    roleLabel.textContent = role === 'user' ? state.username : (modelName || state.selectedModel);
     messageDiv.appendChild(roleLabel);
 
     if (hasImage) {
@@ -589,14 +589,20 @@ async function handleSendMessage() {
     // Create assistant message placeholder
     const assistantDiv = document.createElement('div');
     assistantDiv.className = 'message assistant';
-    assistantDiv.innerHTML = `
-        <div class="message-role">ASSISTANT</div>
-        <div class="message-content generating-indicator">Generating...</div>
-    `;
+
+    const roleDiv = document.createElement('div');
+    roleDiv.className = 'message-role';
+    roleDiv.textContent = state.selectedModel;
+    assistantDiv.appendChild(roleDiv);
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content generating-indicator';
+    contentDiv.textContent = 'Generating...';
+    assistantDiv.appendChild(contentDiv);
+
     elements.messages.appendChild(assistantDiv);
     scrollToBottom();
 
-    const contentDiv = assistantDiv.querySelector('.message-content');
     let fullResponse = '';
 
     try {
@@ -630,7 +636,7 @@ async function handleSendMessage() {
                             scrollToBottom();
                         } else if (data.type === 'done') {
                             contentDiv.innerHTML = formatContent(fullResponse);
-                            state.messages.push({ role: 'assistant', content: fullResponse });
+                            state.messages.push({ role: 'assistant', content: fullResponse, model: state.selectedModel });
                             state.lastOutput = fullResponse;
                             updateCanvas();
                         } else if (data.type === 'error') {
