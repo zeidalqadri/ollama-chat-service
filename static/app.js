@@ -4,6 +4,14 @@
  */
 
 // =============================================================================
+// Base Path Detection (for reverse proxy support)
+// =============================================================================
+
+// Detect base path from current URL (e.g., /borak01 from /borak01/)
+const BASE_PATH = window.location.pathname.replace(/\/$/, '') || '';
+const API_BASE = BASE_PATH + '/api';
+
+// =============================================================================
 // State
 // =============================================================================
 
@@ -62,7 +70,7 @@ const elements = {
 // =============================================================================
 
 async function api(endpoint, options = {}) {
-    const response = await fetch(`/api${endpoint}`, {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
         credentials: 'include',
         headers: {
             'Content-Type': 'application/json',
@@ -181,7 +189,7 @@ async function sendMessage(message, model, images = null) {
         payload.images = images;
     }
 
-    const response = await fetch('/api/chat/send', {
+    const response = await fetch(`${API_BASE}/chat/send`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
