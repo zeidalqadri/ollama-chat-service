@@ -13,69 +13,95 @@ ssh -p 1511 root@45.159.230.42
 ssh -p 1511 root@45.159.230.42 "tail -50 /tmp/streamlit.log"
 ```
 
-## What Was Built
+## Current State
 
-| Feature | Implementation | Files |
-|---------|---------------|-------|
-| Streaming | `chat_with_ollama_stream()` generator | app.py:299-320 |
-| ChromaDB | `chroma_save_message()`, `chroma_load_history()` | app.py:330-400 |
-| Stream cache | `save_stream_chunk()`, `load_stream_cache()` | app.py:402-440 |
-| UI lock | CSS `.streaming-active` class + JS | app.py:145-165 |
-| Panel toggle | Pure JS `togglePanel()` | app.py:260-280 |
-
-## Current Production State
-
-- **Commit**: f3766c8 (pushed to GitHub)
-- **Deployed**: Yes, running on VPS
+- **Commit**: Uncommitted changes (need to commit!)
+- **Deployed**: Yes, running on VPS with latest code
 - **Health**: OK
 
-## Pending Work
+## What Changed Since Last Commit
 
-1. **Test vision models** - Upload image, try llava or moondream
-2. **Add STOP button** - Cancel long generations via Ollama API
-3. **Test crash recovery** - Refresh mid-stream, verify recovery
+Major refactor: **Background generation system** to survive WebSocket drops.
 
-## Critical Knowledge
+| Change | Why |
+|--------|-----|
+| Background thread generation | WebSocket was dropping during long generations |
+| File-based state persistence | Recovery after reconnect |
+| Polling instead of streaming | More robust to connection issues |
+| Fixed canvas_col indentation | Layout was broken |
 
-### SSH Port
-```
-Port 1511 (NOT 22!)
-```
+## Uncommitted Files
 
-### Service Restart
 ```bash
-ssh -p 1511 root@45.159.230.42 "pkill streamlit; fuser -k 8501/tcp; cd /opt/ollama-ui && source venv/bin/activate && nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true > /tmp/streamlit.log 2>&1 &"
+git status
+# modified: app.py
+# modified: dev/active/borak-context.md
+# modified: dev/active/borak-tasks.md
+# modified: dev/active/handoff.md
 ```
 
-### Deploy Single File
+## Critical Code Locations
+
+| Feature | Location |
+|---------|----------|
+| Background generation | app.py:500-600 |
+| ChromaDB functions | app.py:400-500 |
+| Polling loop | app.py:871-904 |
+| Column layout | app.py:828 (chat_col, canvas_col) |
+
+## ⚠️ INDENTATION WARNING
+
+The column layout is sensitive to indentation:
+
+```python
+# Line 830 and 906 MUST have same indent (4 spaces)
+    with chat_col:    # 4 spaces
+        ...
+    with canvas_col:  # 4 spaces - SAME LEVEL!
+        ...
+```
+
+If `canvas_col` has 8 spaces, it nests inside `chat_col` and breaks layout.
+
+## Test After Resume
+
+1. **Layout check**: Login, verify TERMINAL on left, OUTPUT on right
+2. **Generation test**: Send a message, verify response appears
+3. **Recovery test**: Refresh mid-generation, verify it recovers
+
+## Commands to Commit
+
 ```bash
-scp -P 1511 app.py root@45.159.230.42:/opt/ollama-ui/app.py
-```
+cd /Users/zeidalqadri/projects/ollama-chat-service
+git add app.py dev/
+git commit -m "feat: background generation with WebSocket recovery
 
-### Key Paths on VPS
-- App: `/opt/ollama-ui/`
-- Chroma DB: `/opt/ollama-ui/chroma_db/`
-- Stream cache: `/opt/ollama-ui/stream_cache/`
-- Users DB: `/opt/ollama-ui/users.db`
-- Logs: `/tmp/streamlit.log`
+- Background thread for Ollama API calls (survives disconnects)
+- File-based state persistence for recovery
+- Polling pattern instead of inline streaming
+- Fixed column indentation bug
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+git push origin master
+```
 
 ## Architecture Summary
 
 ```
-User Browser
-    ↓
-Streamlit (port 8501)
-    ↓
-app.py
-    ├── SQLite (users.db) - auth, fallback chat
-    ├── ChromaDB (chroma_db/) - vector chat storage
-    ├── Stream cache (stream_cache/) - crash recovery
-    └── Ollama API (localhost:11434) - LLM inference
+Browser ←WebSocket→ Streamlit (port 8501)
+                         ↓
+                    app.py
+                         ├── Background Thread (daemon)
+                         │   └── Writes to gen_{user_id}.json
+                         ├── Main Thread
+                         │   └── Polls JSON file every 0.5s
+                         ├── ChromaDB (chroma_db/)
+                         ├── SQLite (users.db)
+                         └── Ollama API (localhost:11434)
 ```
 
-## Session Statistics
+## Session Stats
 
-- Duration: ~2 hours
-- Lines changed: 351 added, 22 removed
-- Features added: 5 major (streaming, ChromaDB, cache, UI lock, JS toggle)
-- Bugs fixed: 3 (rerun loop, panel interrupt, response loss)
+- Duration: ~3 hours
+- Major features: 4 (background gen, ChromaDB, UI lock, JS toggle)
+- Bugs fixed: 4 (WebSocket drop, rerun loop, panel interrupt, layout)

@@ -1,6 +1,6 @@
 # BÖRAK Tasks
 
-**Last Updated**: 2026-01-25 00:15 UTC
+**Last Updated**: 2026-01-25 00:35 UTC
 
 ## Completed ✅
 
@@ -10,24 +10,25 @@
 - [x] Implement streaming responses
 - [x] Add chat persistence (SQLite + ChromaDB)
 - [x] Add crash recovery (stream cache)
-- [x] Fix rerun loop bug (removed st.rerun after streaming)
-- [x] Add JS-based panel toggle (no rerun)
+- [x] Fix rerun loop bug
+- [x] Add JS-based panel toggle
 - [x] Add UI lock during streaming
 - [x] Install ChromaDB on VPS
-- [x] Deploy all changes to production
+- [x] Implement background generation (survives WebSocket drops)
+- [x] Fix indentation bug (canvas_col inside chat_col)
+- [x] Add generation recovery on reconnect
 
 ## In Progress 🔄
 
-- [ ] Commit and push all session changes
-  - Files: app.py (major changes), dev/ (new docs)
-  - Status: Ready to commit
+- [ ] Commit and push all changes
+  - Status: Ready to commit (significant changes since last push)
 
 ## Pending 📋
 
 ### High Priority
+- [ ] Test background generation recovery (refresh mid-generation)
 - [ ] Test vision models with actual images
 - [ ] Add STOP button to cancel generation
-- [ ] Test crash recovery (refresh mid-stream)
 
 ### Medium Priority
 - [ ] Implement semantic search using ChromaDB embeddings
@@ -35,13 +36,15 @@
 - [ ] Add token count display
 
 ### Low Priority
-- [ ] VPS disk cleanup (currently 79%, was 97%)
 - [ ] Add system prompt customization
 - [ ] Add temperature/top_p controls
 - [ ] Multiple chat sessions per user
 
-## Bugs to Watch
+## Bugs Fixed This Session
 
-1. **Ollama API exposed externally** - Should be localhost only, but responding to external requests
-2. **Long generation timeouts** - 6+ minute requests may fail
-3. **File uploader label warning** - Cosmetic, non-blocking
+| Bug | Symptom | Fix |
+|-----|---------|-----|
+| WebSocket drop | Response lost mid-generation | Background thread + file persistence |
+| Rerun loop | Infinite refresh after response | Removed st.rerun(), use polling |
+| Panel interrupt | Clicking HIDE killed response | JS toggle instead of Python button |
+| Layout broken | Login form in OUTPUT column | Fixed canvas_col indentation (8→4 spaces) |
