@@ -414,7 +414,7 @@ function showLoginView() {
 function showChatView() {
     elements.loginView.style.display = 'none';
     elements.chatView.classList.add('active');
-    elements.displayUsername.textContent = `> ${state.username}`;
+    elements.displayUsername.textContent = state.username;
 }
 
 function showAlert(message, type = 'error') {
@@ -618,16 +618,21 @@ function addMessageToDOM(role, content, hasImage = false, modelName = null, isPa
     if (hasImage) {
         const imageLabel = document.createElement('div');
         imageLabel.className = 'image-attached';
-        imageLabel.textContent = 'IMAGE ATTACHED';
+        imageLabel.textContent = 'Image attached';
         messageDiv.appendChild(imageLabel);
     }
+
+    // Bubble wrapper for cleaner design
+    const bubbleDiv = document.createElement('div');
+    bubbleDiv.className = 'message-bubble';
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
     // Content is sanitized via formatContent which escapes HTML first
     contentDiv.innerHTML = formatContent(content);
-    messageDiv.appendChild(contentDiv);
+    bubbleDiv.appendChild(contentDiv);
 
+    messageDiv.appendChild(bubbleDiv);
     elements.messages.appendChild(messageDiv);
 
     // Apply syntax highlighting
@@ -1187,11 +1192,16 @@ async function handleSendMessage() {
     roleDiv.textContent = state.selectedModel;
     assistantDiv.appendChild(roleDiv);
 
+    // Bubble wrapper
+    const bubbleDiv = document.createElement('div');
+    bubbleDiv.className = 'message-bubble';
+
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content generating-indicator';
     contentDiv.textContent = 'Generating...';
-    assistantDiv.appendChild(contentDiv);
+    bubbleDiv.appendChild(contentDiv);
 
+    assistantDiv.appendChild(bubbleDiv);
     elements.messages.appendChild(assistantDiv);
     scrollToBottom();
 
