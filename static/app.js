@@ -80,6 +80,13 @@ const elements = {
     stopBtn: document.getElementById('stop-btn'),
     continueBtn: document.getElementById('continue-btn'),
 
+    // Inline attachment (next to chat input)
+    attachBtn: document.getElementById('attach-btn'),
+    inlineImageInput: document.getElementById('inline-image-input'),
+    inlineImagePreview: document.getElementById('inline-image-preview'),
+    inlinePreviewImg: document.getElementById('inline-preview-img'),
+    inlineRemoveImage: document.getElementById('inline-remove-image'),
+
     // Canvas / Artifacts
     canvasContent: document.getElementById('canvas-content'),
     canvasPanel: document.querySelector('.canvas-panel'),
@@ -1030,17 +1037,76 @@ elements.imageInput.addEventListener('change', (e) => {
             elements.previewImg.src = event.target.result;
             elements.imagePreview.classList.remove('hidden');
             elements.fileUpload.classList.add('hidden');
+            // Also update inline preview
+            if (elements.inlinePreviewImg) {
+                elements.inlinePreviewImg.src = event.target.result;
+                elements.inlineImagePreview.classList.remove('hidden');
+            }
+            if (elements.attachBtn) {
+                elements.attachBtn.classList.add('has-image');
+            }
         };
         reader.readAsDataURL(file);
     }
 });
 
 elements.removeImage.addEventListener('click', () => {
-    state.uploadedImage = null;
-    elements.imageInput.value = '';
-    elements.imagePreview.classList.add('hidden');
-    elements.fileUpload.classList.remove('hidden');
+    clearUploadedImage();
 });
+
+// Inline image upload (next to chat input)
+if (elements.attachBtn) {
+    elements.attachBtn.addEventListener('click', () => {
+        elements.inlineImageInput.click();
+    });
+}
+
+if (elements.inlineImageInput) {
+    elements.inlineImageInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const base64 = event.target.result.split(',')[1];
+                state.uploadedImage = base64;
+                // Update both previews for consistency
+                if (elements.inlinePreviewImg) {
+                    elements.inlinePreviewImg.src = event.target.result;
+                    elements.inlineImagePreview.classList.remove('hidden');
+                }
+                if (elements.attachBtn) {
+                    elements.attachBtn.classList.add('has-image');
+                }
+                // Also update sidebar preview if it exists
+                if (elements.previewImg) {
+                    elements.previewImg.src = event.target.result;
+                    elements.imagePreview.classList.remove('hidden');
+                    elements.fileUpload.classList.add('hidden');
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+}
+
+if (elements.inlineRemoveImage) {
+    elements.inlineRemoveImage.addEventListener('click', () => {
+        clearUploadedImage();
+    });
+}
+
+// Helper to clear uploaded image from all locations
+function clearUploadedImage() {
+    state.uploadedImage = null;
+    // Clear sidebar upload
+    if (elements.imageInput) elements.imageInput.value = '';
+    if (elements.imagePreview) elements.imagePreview.classList.add('hidden');
+    if (elements.fileUpload) elements.fileUpload.classList.remove('hidden');
+    // Clear inline upload
+    if (elements.inlineImageInput) elements.inlineImageInput.value = '';
+    if (elements.inlineImagePreview) elements.inlineImagePreview.classList.add('hidden');
+    if (elements.attachBtn) elements.attachBtn.classList.remove('has-image');
+}
 
 // Session controls
 elements.newChatBtn.addEventListener('click', handleNewChat);
@@ -1171,12 +1237,9 @@ async function handleSendMessage() {
     elements.chatInput.value = '';
     elements.chatInput.style.height = 'auto';
 
-    // Clear image
-    if (state.uploadedImage) {
-        state.uploadedImage = null;
-        elements.imageInput.value = '';
-        elements.imagePreview.classList.add('hidden');
-        elements.fileUpload.classList.remove('hidden');
+    // Clear image (use helper to clear all previews)
+    if (hasImage) {
+        clearUploadedImage();
     }
 
     // Start streaming

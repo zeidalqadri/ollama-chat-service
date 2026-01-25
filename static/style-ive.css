@@ -914,6 +914,78 @@ body {
     background: var(--surface);
 }
 
+/* Inline image preview */
+.inline-image-preview {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+    margin-bottom: var(--space-sm);
+    background: var(--surface-elevated);
+    border-radius: var(--radius-md);
+}
+
+.inline-image-preview img {
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+}
+
+.inline-remove-btn {
+    width: 24px;
+    height: 24px;
+    background: var(--error);
+    color: var(--bg);
+    border: none;
+    border-radius: var(--radius-full);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--duration-quick) var(--ease-spring);
+}
+
+.inline-remove-btn:hover {
+    transform: scale(1.1);
+}
+
+/* Attach button */
+.attach-btn {
+    width: 44px;
+    height: 44px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all var(--duration-quick) var(--ease-spring);
+}
+
+.attach-btn:hover {
+    background: var(--surface-elevated);
+    color: var(--accent);
+    border-color: var(--accent-dim);
+}
+
+.attach-btn.has-image {
+    background: var(--accent-glow);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.attach-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
 .chat-input-wrapper {
     display: flex;
     gap: var(--space-sm);
