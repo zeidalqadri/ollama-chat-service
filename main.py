@@ -132,7 +132,7 @@ def init_db():
                   model TEXT, created_at TEXT, session_id INTEGER, is_partial INTEGER DEFAULT 0,
                   FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE)''')
 
-    # Artifacts table
+    # Artifacts table (legacy - session-bound)
     c.execute('''CREATE TABLE IF NOT EXISTS artifacts
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   session_id INTEGER NOT NULL,
@@ -145,6 +145,22 @@ def init_db():
                   FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE)''')
     c.execute('''CREATE INDEX IF NOT EXISTS idx_artifacts_session
                  ON artifacts(session_id)''')
+
+    # User artifacts table (persistent, user-level, not session-bound)
+    c.execute('''CREATE TABLE IF NOT EXISTS user_artifacts
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_id INTEGER NOT NULL,
+                  type TEXT NOT NULL,
+                  language TEXT,
+                  title TEXT,
+                  content TEXT NOT NULL,
+                  source_session_id INTEGER,
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)''')
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_user_artifacts_user
+                 ON user_artifacts(user_id, created_at DESC)''')
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_user_artifacts_type
+                 ON user_artifacts(user_id, type)''')
 
     # Usage log table
     c.execute('''CREATE TABLE IF NOT EXISTS usage_log
@@ -192,6 +208,28 @@ def migrate_db(conn):
 
         conn.commit()
 
+    # Migration: Copy artifacts to user_artifacts and rename explanation -> document
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_artifacts'")
+    if c.fetchone():
+        # Check if migration already done by looking for any user_artifacts
+        c.execute("SELECT COUNT(*) FROM user_artifacts")
+        if c.fetchone()[0] == 0:
+            # Copy existing artifacts to user_artifacts, renaming explanation -> document
+            c.execute("""
+                INSERT INTO user_artifacts (user_id, type, language, title, content, source_session_id, created_at)
+                SELECT user_id,
+                       CASE WHEN type = 'explanation' THEN 'document' ELSE type END,
+                       language, title, content, session_id, created_at
+                FROM artifacts
+            """)
+            conn.commit()
+
+    # Update any remaining 'explanation' types to 'document' in both tables
+    c.execute("UPDATE artifacts SET type = 'document' WHERE type = 'explanation'")
+    c.execute("UPDATE user_artifacts SET type = 'document' WHERE type = 'explanation'")
+    conn.commit()
+
+
 def register_user(username: str, password: str) -> tuple[bool, str]:
     conn = get_db()
     c = conn.cursor()
@@ -232,6 +270,34 @@ def log_usage(user_id: int, model: str, tokens_in: int, tokens_out: int):
     conn.commit()
     conn.close()
 
+def generate_session_title(content: str, max_length: int = 50) -> str:
+    """Generate a session title from the first user message."""
+    # Clean up the content
+    title = content.strip()
+
+    # Remove common prefixes
+    for prefix in ["can you ", "could you ", "please ", "i want to ", "i need to ", "help me "]:
+        if title.lower().startswith(prefix):
+            title = title[len(prefix):]
+            break
+
+    # Capitalize first letter
+    if title:
+        title = title[0].upper() + title[1:]
+
+    # Truncate at sentence boundary if possible
+    for end in [". ", "? ", "! ", "\n"]:
+        if end in title[:max_length]:
+            title = title[:title.index(end) + 1]
+            break
+
+    # Final truncation with ellipsis
+    if len(title) > max_length:
+        title = title[:max_length-3].rsplit(" ", 1)[0] + "..."
+
+    return title or "New Chat"
+
+
 def save_message(user_id: int, role: str, content: str, model: str, session_id: int = None, is_partial: bool = False):
     conn = get_db()
     c = conn.cursor()
@@ -245,6 +311,15 @@ def save_message(user_id: int, role: str, content: str, model: str, session_id: 
     if session_id:
         c.execute("UPDATE chat_sessions SET updated_at = ? WHERE id = ?",
                   (datetime.now().isoformat(), session_id))
+
+        # Auto-title session from first user message
+        if role == "user":
+            c.execute("SELECT name, (SELECT COUNT(*) FROM chat_history WHERE session_id = ?) as msg_count FROM chat_sessions WHERE id = ?",
+                      (session_id, session_id))
+            row = c.fetchone()
+            if row and row["name"] == "New Chat" and row["msg_count"] == 1:
+                new_title = generate_session_title(content)
+                c.execute("UPDATE chat_sessions SET name = ? WHERE id = ?", (new_title, session_id))
 
     conn.commit()
     conn.close()
@@ -438,15 +513,26 @@ def get_or_create_active_session(user_id: int) -> int:
 
 def save_artifact(session_id: int, user_id: int, artifact_type: str, content: str,
                   language: str = None, title: str = None) -> int:
-    """Save an artifact extracted from a response."""
+    """Save an artifact to both session-bound and user-level tables."""
+    now = datetime.now().isoformat()
     conn = get_db()
     c = conn.cursor()
+
+    # Save to session-bound artifacts (legacy)
     c.execute(
         """INSERT INTO artifacts (session_id, user_id, type, language, title, content, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (session_id, user_id, artifact_type, language, title, content, datetime.now().isoformat())
+        (session_id, user_id, artifact_type, language, title, content, now)
     )
     artifact_id = c.lastrowid
+
+    # Also save to user-level persistent artifacts
+    c.execute(
+        """INSERT INTO user_artifacts (user_id, type, language, title, content, source_session_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, artifact_type, language, title, content, session_id, now)
+    )
+
     conn.commit()
     conn.close()
     return artifact_id
@@ -466,7 +552,7 @@ def get_artifacts(session_id: int, user_id: int) -> dict:
     rows = c.fetchall()
     conn.close()
 
-    grouped = {"code": [], "thought": [], "explanation": []}
+    grouped = {"code": [], "thought": [], "document": []}
     for row in rows:
         item = {
             "id": row["id"],
@@ -476,10 +562,70 @@ def get_artifacts(session_id: int, user_id: int) -> dict:
             "created_at": row["created_at"]
         }
         artifact_type = row["type"]
+        # Handle legacy "explanation" type
+        if artifact_type == "explanation":
+            artifact_type = "document"
         if artifact_type in grouped:
             grouped[artifact_type].append(item)
 
     return grouped
+
+
+def get_user_artifacts(user_id: int, artifact_type: str = None) -> dict:
+    """Get all persistent artifacts for a user, optionally filtered by type."""
+    conn = get_db()
+    c = conn.cursor()
+
+    if artifact_type:
+        c.execute(
+            """SELECT id, type, language, title, content, source_session_id, created_at
+               FROM user_artifacts
+               WHERE user_id = ? AND type = ?
+               ORDER BY created_at DESC""",
+            (user_id, artifact_type)
+        )
+    else:
+        c.execute(
+            """SELECT id, type, language, title, content, source_session_id, created_at
+               FROM user_artifacts
+               WHERE user_id = ?
+               ORDER BY created_at DESC""",
+            (user_id,)
+        )
+    rows = c.fetchall()
+    conn.close()
+
+    grouped = {"code": [], "thought": [], "document": []}
+    for row in rows:
+        item = {
+            "id": row["id"],
+            "language": row["language"],
+            "title": row["title"],
+            "content": row["content"],
+            "source_session_id": row["source_session_id"],
+            "created_at": row["created_at"]
+        }
+        atype = row["type"]
+        if atype == "explanation":
+            atype = "document"
+        if atype in grouped:
+            grouped[atype].append(item)
+
+    return grouped
+
+
+def delete_user_artifact(artifact_id: int, user_id: int) -> bool:
+    """Delete a user artifact by ID."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        "DELETE FROM user_artifacts WHERE id = ? AND user_id = ?",
+        (artifact_id, user_id)
+    )
+    deleted = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
 
 
 def get_artifact(artifact_id: int, user_id: int) -> Optional[dict]:
@@ -757,6 +903,8 @@ async def api_login(user: UserLogin, response: Response):
         key="access_token",
         value=token,
         httponly=True,
+        secure=True,  # Required for HTTPS/iOS
+        path="/",     # Ensure cookie is sent for all paths
         max_age=ACCESS_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         samesite="lax"
     )
@@ -894,7 +1042,7 @@ def extract_artifacts_from_response(content: str) -> List[dict]:
                 "content": thought
             })
 
-    # Extract markdown sections as explanations (headers with 50+ char content)
+    # Extract markdown sections as documents (headers with 50+ char content)
     section_pattern = r'^##\s+(.+?)\n([\s\S]*?)(?=^##|\Z)'
     for match in re.finditer(section_pattern, content, re.MULTILINE):
         title = match.group(1).strip()
@@ -902,7 +1050,7 @@ def extract_artifacts_from_response(content: str) -> List[dict]:
         # Only include substantial sections
         if len(body) >= 50 and not body.startswith('```'):
             artifacts.append({
-                "type": "explanation",
+                "type": "document",
                 "language": None,
                 "title": title,
                 "content": body
@@ -1005,7 +1153,7 @@ async def api_chat_send(chat: ChatRequest, user_id: int = Depends(get_current_us
 
             # Extract and save artifacts
             artifacts = extract_artifacts_from_response(full_response)
-            artifact_counts = {"code": 0, "thought": 0, "explanation": 0}
+            artifact_counts = {"code": 0, "thought": 0, "document": 0}
             for artifact in artifacts:
                 save_artifact(
                     session_id, user_id, artifact["type"],
@@ -1114,7 +1262,7 @@ async def api_chat_continue(cont: ContinueRequest, user_id: int = Depends(get_cu
 
             # Extract and save new artifacts
             artifacts = extract_artifacts_from_response(full_response)
-            artifact_counts = {"code": 0, "thought": 0, "explanation": 0}
+            artifact_counts = {"code": 0, "thought": 0, "document": 0}
             for artifact in artifacts:
                 save_artifact(
                     session_id, user_id, artifact["type"],
@@ -1184,6 +1332,58 @@ async def api_download_artifacts(session_id: int, user_id: int = Depends(get_cur
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename=session_{session_id}_artifacts.zip"}
     )
+
+
+# =============================================================================
+# User Artifacts Routes (Persistent, User-Level)
+# =============================================================================
+
+@app.get("/api/user/artifacts")
+async def api_get_user_artifacts(
+    artifact_type: Optional[str] = None,
+    user_id: int = Depends(get_current_user)
+):
+    """Get all persistent artifacts for a user, optionally filtered by type."""
+    artifacts = get_user_artifacts(user_id, artifact_type)
+    return artifacts
+
+
+@app.delete("/api/user/artifacts/{artifact_id}")
+async def api_delete_user_artifact(artifact_id: int, user_id: int = Depends(get_current_user)):
+    """Delete a persistent user artifact."""
+    deleted = delete_user_artifact(artifact_id, user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return {"success": True}
+
+
+@app.get("/api/user/artifacts/download")
+async def api_download_user_artifacts(user_id: int = Depends(get_current_user)):
+    """Download all user artifacts as a ZIP file."""
+    artifacts = get_user_artifacts(user_id)
+
+    # Create ZIP in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for artifact_type, items in artifacts.items():
+            folder = artifact_type + "s"  # code -> codes, thought -> thoughts, document -> documents
+            for i, item in enumerate(items):
+                ext = item.get("language", "txt") or "txt"
+                ext_map = {
+                    "python": "py", "javascript": "js", "typescript": "ts",
+                    "markdown": "md", "yaml": "yml", "thought": "md", "document": "md"
+                }
+                ext = ext_map.get(ext, ext)
+                filename = f"{folder}/{i+1}_{item.get('title', 'artifact')[:30].replace(' ', '_')}.{ext}"
+                zf.writestr(filename, item["content"])
+
+    zip_buffer.seek(0)
+    return StreamingResponse(
+        iter([zip_buffer.read()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=my_artifacts.zip"}
+    )
+
 
 # =============================================================================
 # Background Generation Routes (for recovery)

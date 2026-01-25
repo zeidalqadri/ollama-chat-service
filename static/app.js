@@ -34,7 +34,9 @@ const state = {
     canContinue: false,
     // Artifacts
     artifacts: { code: [], thought: [], explanation: [] },
-    selectedArtifact: null
+    selectedArtifact: null,
+    // Scroll control - only auto-scroll if user is near bottom
+    userScrolledUp: false
 };
 
 // =============================================================================
@@ -93,10 +95,10 @@ const elements = {
     // Artifact folders
     codeArtifacts: document.getElementById('code-artifacts'),
     thoughtArtifacts: document.getElementById('thought-artifacts'),
-    explanationArtifacts: document.getElementById('explanation-artifacts'),
+    documentArtifacts: document.getElementById('document-artifacts'),
     codeCount: document.getElementById('code-count'),
     thoughtCount: document.getElementById('thought-count'),
-    explanationCount: document.getElementById('explanation-count'),
+    documentCount: document.getElementById('document-count'),
 
     // Mobile
     sidebarOverlay: document.getElementById('sidebar-overlay')
@@ -298,8 +300,9 @@ async function clearChatHistory(sessionId = null) {
 // =============================================================================
 
 async function loadArtifacts(sessionId) {
+    // Load user-level persistent artifacts (not session-bound)
     try {
-        const response = await api(`/sessions/${sessionId}/artifacts`);
+        const response = await api('/user/artifacts');
         if (response.ok) {
             const data = await response.json();
             state.artifacts = data;
@@ -308,7 +311,19 @@ async function loadArtifacts(sessionId) {
     } catch (e) {
         console.error('Failed to load artifacts:', e);
     }
-    return { code: [], thought: [], explanation: [] };
+    return { code: [], thought: [], document: [] };
+}
+
+async function deleteArtifact(artifactId) {
+    try {
+        const response = await api(`/user/artifacts/${artifactId}`, {
+            method: 'DELETE'
+        });
+        return response.ok;
+    } catch (e) {
+        console.error('Failed to delete artifact:', e);
+    }
+    return false;
 }
 
 async function downloadArtifactsZip(sessionId) {
@@ -652,9 +667,25 @@ function formatContent(content) {
     return html;
 }
 
-function scrollToBottom() {
-    elements.messages.scrollTop = elements.messages.scrollHeight;
+function scrollToBottom(force = false) {
+    // Only auto-scroll if user hasn't scrolled up (or force is true)
+    if (force || !state.userScrolledUp) {
+        elements.messages.scrollTop = elements.messages.scrollHeight;
+    }
 }
+
+function isNearBottom() {
+    const threshold = 100; // pixels from bottom
+    const { scrollTop, scrollHeight, clientHeight } = elements.messages;
+    return scrollHeight - scrollTop - clientHeight < threshold;
+}
+
+// Detect user scroll to allow reading while streaming
+elements.messages.addEventListener('scroll', () => {
+    if (state.isGenerating) {
+        state.userScrolledUp = !isNearBottom();
+    }
+});
 
 function updateCanContinue() {
     // Check if last message is partial
@@ -678,6 +709,8 @@ function setGenerating(isGenerating) {
         elements.sidebar.classList.add('disabled');
     } else {
         elements.sidebar.classList.remove('disabled');
+        // Reset scroll tracking when generation ends
+        state.userScrolledUp = false;
     }
 }
 
@@ -686,45 +719,79 @@ function setGenerating(isGenerating) {
 // =============================================================================
 
 function renderArtifacts() {
-    const { code, thought, explanation } = state.artifacts;
+    const { code, thought, document: docs } = state.artifacts;
+    const codeItems = code || [];
+    const thoughtItems = thought || [];
+    const docItems = docs || [];
 
     // Update counts
-    elements.codeCount.textContent = `(${code.length})`;
-    elements.thoughtCount.textContent = `(${thought.length})`;
-    elements.explanationCount.textContent = `(${explanation.length})`;
+    elements.codeCount.textContent = `(${codeItems.length})`;
+    elements.thoughtCount.textContent = `(${thoughtItems.length})`;
+    elements.documentCount.textContent = `(${docItems.length})`;
 
     // Render items
-    renderArtifactItems(elements.codeArtifacts, code, 'code');
-    renderArtifactItems(elements.thoughtArtifacts, thought, 'thought');
-    renderArtifactItems(elements.explanationArtifacts, explanation, 'explanation');
+    renderArtifactItems(elements.codeArtifacts, codeItems, 'code');
+    renderArtifactItems(elements.thoughtArtifacts, thoughtItems, 'thought');
+    renderArtifactItems(elements.documentArtifacts, docItems, 'document');
 
     // Show/hide empty state
-    const hasArtifacts = code.length + thought.length + explanation.length > 0;
+    const hasArtifacts = codeItems.length + thoughtItems.length + docItems.length > 0;
     elements.canvasEmpty.classList.toggle('hidden', hasArtifacts);
     elements.downloadAllBtn.classList.toggle('hidden', !hasArtifacts);
 }
 
 function renderArtifactItems(container, items, type) {
-    container.innerHTML = '';
+    // Clear container safely
+    while (container.firstChild) {
+        container.removeChild(container.firstChild);
+    }
 
     items.forEach((item, index) => {
         const el = document.createElement('div');
         el.className = 'artifact-item';
         el.dataset.artifactId = item.id;
 
+        const info = document.createElement('div');
+        info.className = 'artifact-info';
+
         const title = document.createElement('span');
         title.className = 'artifact-title';
         title.textContent = item.title || `${type} ${index + 1}`;
-        el.appendChild(title);
+        info.appendChild(title);
 
         if (item.language) {
             const lang = document.createElement('span');
             lang.className = 'artifact-lang';
             lang.textContent = item.language.toUpperCase();
-            el.appendChild(lang);
+            info.appendChild(lang);
         }
 
-        el.addEventListener('click', () => {
+        el.appendChild(info);
+
+        // Delete button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'artifact-delete';
+        deleteBtn.textContent = '×';
+        deleteBtn.title = 'Delete';
+        deleteBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (confirm(`Delete "${item.title || type}"?`)) {
+                const deleted = await deleteArtifact(item.id);
+                if (deleted) {
+                    // Remove from state and re-render
+                    state.artifacts[type] = state.artifacts[type].filter(a => a.id !== item.id);
+                    renderArtifacts();
+                    // Close preview if this was selected
+                    if (state.selectedArtifact?.id === item.id) {
+                        elements.artifactPreview.classList.add('hidden');
+                        state.selectedArtifact = null;
+                    }
+                }
+            }
+        });
+        el.appendChild(deleteBtn);
+
+        info.addEventListener('click', () => {
             selectArtifact(item, type);
         });
 
@@ -768,9 +835,14 @@ function extractArtifactsRealtime(content) {
     const thoughtCount = (content.match(/&lt;think&gt;[\s\S]*?&lt;\/think&gt;/g) || []).length;
     const sectionCount = (content.match(/^##\s+.+?\n[\s\S]{50,}?(?=^##|\Z)/gm) || []).length;
 
-    elements.codeCount.textContent = `(${codeCount})`;
-    elements.thoughtCount.textContent = `(${thoughtCount})`;
-    elements.explanationCount.textContent = `(${sectionCount})`;
+    // Add to existing counts from user artifacts
+    const existingCode = (state.artifacts.code || []).length;
+    const existingThought = (state.artifacts.thought || []).length;
+    const existingDocs = (state.artifacts.document || []).length;
+
+    elements.codeCount.textContent = `(${existingCode + codeCount})`;
+    elements.thoughtCount.textContent = `(${existingThought + thoughtCount})`;
+    elements.documentCount.textContent = `(${existingDocs + sectionCount})`;
 }
 
 // =============================================================================
@@ -1087,7 +1159,8 @@ async function handleSendMessage() {
     // Add user message to state and DOM
     state.messages.push({ role: 'user', content: message, hasImage });
     addMessageToDOM('user', message, hasImage);
-    scrollToBottom();
+    state.userScrolledUp = false; // Reset on new message
+    scrollToBottom(true); // Force scroll for user's own message
 
     // Clear input
     elements.chatInput.value = '';
