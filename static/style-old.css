@@ -579,10 +579,6 @@ body {
     color: var(--accent);
 }
 
-.message-bubble {
-    /* Wrapper for message content - ensures compatibility with both designs */
-}
-
 .message-content {
     white-space: pre-wrap;
     word-break: break-word;

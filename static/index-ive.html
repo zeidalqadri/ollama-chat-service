@@ -6,12 +6,18 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#121214">
+    <meta name="description" content="BÖRAK01 - Private AI Inference">
     <title>BÖRAK01</title>
-    <link rel="stylesheet" href="static/style-ive.css">
+
+    <!-- Preconnect for performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <!-- Syntax Highlighting -->
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="static/style-ive.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+
+    <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 <body>
@@ -26,8 +32,8 @@
                 </div>
 
                 <div class="tabs">
-                    <button class="tab-btn active" data-tab="login">LOGIN</button>
-                    <button class="tab-btn" data-tab="register">REGISTER</button>
+                    <button class="tab-btn active" data-tab="login">Login</button>
+                    <button class="tab-btn" data-tab="register">Register</button>
                 </div>
 
                 <div id="auth-alert" class="alert hidden"></div>
@@ -36,30 +42,30 @@
                 <form id="login-form" class="auth-form">
                     <div class="form-group">
                         <label for="login-username">Username</label>
-                        <input type="text" id="login-username" placeholder="enter username" autocomplete="username" required>
+                        <input type="text" id="login-username" placeholder="Enter username" autocomplete="username" required>
                     </div>
                     <div class="form-group">
                         <label for="login-password">Password</label>
-                        <input type="password" id="login-password" placeholder="enter password" autocomplete="current-password" required>
+                        <input type="password" id="login-password" placeholder="Enter password" autocomplete="current-password" required>
                     </div>
-                    <button type="submit" class="btn btn-primary">CONNECT</button>
+                    <button type="submit" class="btn btn-primary">Connect</button>
                 </form>
 
                 <!-- Register Form -->
                 <form id="register-form" class="auth-form hidden">
                     <div class="form-group">
                         <label for="reg-username">Username</label>
-                        <input type="text" id="reg-username" placeholder="choose username" autocomplete="username" required>
+                        <input type="text" id="reg-username" placeholder="Choose username" autocomplete="username" required>
                     </div>
                     <div class="form-group">
                         <label for="reg-password">Password</label>
-                        <input type="password" id="reg-password" placeholder="choose password" autocomplete="new-password" required>
+                        <input type="password" id="reg-password" placeholder="Choose password" autocomplete="new-password" required>
                     </div>
                     <div class="form-group">
-                        <label for="reg-confirm">Confirm</label>
-                        <input type="password" id="reg-confirm" placeholder="confirm password" autocomplete="new-password" required>
+                        <label for="reg-confirm">Confirm Password</label>
+                        <input type="password" id="reg-confirm" placeholder="Confirm password" autocomplete="new-password" required>
                     </div>
-                    <button type="submit" class="btn btn-primary">REGISTER</button>
+                    <button type="submit" class="btn btn-primary">Create Account</button>
                 </form>
 
                 <p class="login-footer">End-to-end encrypted • Zero telemetry • Your data stays yours</p>
@@ -68,64 +74,6 @@
 
         <!-- Chat View -->
         <div id="chat-view" class="chat-view">
-            <!-- Sidebar -->
-            <aside id="sidebar" class="sidebar">
-                <div class="sidebar-content">
-                    <div class="user-info">
-                        <p class="user-label">Signed in as</p>
-                        <p class="username" id="display-username">Loading...</p>
-                    </div>
-
-                    <!-- Sessions Section -->
-                    <div class="sidebar-sessions">
-                        <div class="sidebar-section-header">
-                            <p class="section-label">Sessions</p>
-                            <button id="new-chat-btn" class="btn btn-small">+ New</button>
-                        </div>
-                        <div id="session-list" class="session-list">
-                            <!-- Sessions will be inserted here -->
-                        </div>
-                        <button id="load-more-sessions" class="btn btn-small btn-secondary load-more hidden">Load More</button>
-                    </div>
-
-                    <div class="sidebar-section">
-                    <p class="section-label">Model</p>
-                    <select id="model-select" class="model-select">
-                        <option>Loading models...</option>
-                    </select>
-                    <p id="vision-badge" class="vision-badge hidden">Vision Capable</p>
-                    </div>
-
-                    <div class="sidebar-section">
-                    <p class="section-label">Attach Image</p>
-                    <div class="file-upload" id="file-upload">
-                        <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp">
-                        <span class="file-upload-label">Click to upload image</span>
-                    </div>
-                    <div id="image-preview" class="image-preview hidden">
-                        <img id="preview-img" src="" alt="Preview">
-                        <button class="btn btn-small btn-danger" id="remove-image" style="margin-top: 8px; width: 100%;">Remove</button>
-                    </div>
-                    </div>
-
-                    <div class="sidebar-section">
-                    <p class="section-label">Actions</p>
-                    <div class="sidebar-actions">
-                        <button class="btn btn-small btn-secondary" id="clear-chat">Clear</button>
-                        <button class="btn btn-small btn-danger" id="logout-btn">Logout</button>
-                    </div>
-                    </div>
-
-                    <div class="sidebar-status">
-                        <p class="status-online">Connected</p>
-                        <p class="status-text">Local inference • Secure</p>
-                    </div>
-                </div>
-            </aside>
-
-            <!-- Sidebar Overlay (Mobile) -->
-            <div id="sidebar-overlay" class="sidebar-overlay"></div>
-
             <!-- Menu Toggle (Mobile) -->
             <button id="panel-toggle" class="menu-toggle">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -136,19 +84,84 @@
                 Menu
             </button>
 
-            <!-- Main Area -->
+            <!-- Sidebar -->
+            <aside id="sidebar" class="sidebar">
+                <div class="sidebar-content">
+                    <!-- User Info -->
+                    <div class="user-info">
+                        <p class="user-label">Signed in as</p>
+                        <p class="username" id="display-username">Loading...</p>
+                    </div>
+
+                    <!-- Sessions -->
+                    <div class="sidebar-sessions">
+                        <div class="sidebar-section-header">
+                            <p class="section-label">Sessions</p>
+                            <button id="new-chat-btn" class="btn btn-small">+ New</button>
+                        </div>
+                        <div id="session-list" class="session-list">
+                            <!-- Sessions dynamically inserted -->
+                        </div>
+                        <button id="load-more-sessions" class="btn btn-small btn-secondary load-more hidden">Load More</button>
+                    </div>
+
+                    <!-- Model Selection -->
+                    <div class="sidebar-section">
+                        <p class="section-label">Model</p>
+                        <select id="model-select" class="model-select">
+                            <option>Loading models...</option>
+                        </select>
+                        <p id="vision-badge" class="vision-badge hidden">Vision Capable</p>
+                    </div>
+
+                    <!-- Image Upload -->
+                    <div class="sidebar-section">
+                        <p class="section-label">Attach Image</p>
+                        <div class="file-upload" id="file-upload">
+                            <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp">
+                            <span class="file-upload-label">Click to upload</span>
+                        </div>
+                        <div id="image-preview" class="image-preview hidden">
+                            <img id="preview-img" src="" alt="Preview">
+                            <button class="btn btn-small btn-danger" id="remove-image" style="margin-top: 8px; width: 100%;">Remove</button>
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="sidebar-section">
+                        <p class="section-label">Actions</p>
+                        <div class="sidebar-actions">
+                            <button class="btn btn-small btn-secondary" id="clear-chat">Clear</button>
+                            <button class="btn btn-small btn-danger" id="logout-btn">Logout</button>
+                        </div>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="sidebar-status">
+                        <p class="status-online">Connected</p>
+                        <p class="status-text">Local inference • Secure</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Sidebar Overlay (Mobile) -->
+            <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+            <!-- Main Content -->
             <main class="main-area">
                 <!-- Chat Panel -->
                 <div class="chat-panel">
                     <div class="chat-header">
                         <span class="chat-header-text">Chat</span>
                     </div>
+
                     <div id="messages" class="messages-container">
-                        <!-- Messages will be inserted here -->
+                        <!-- Messages dynamically inserted -->
                     </div>
+
                     <div class="chat-input-container">
                         <div class="chat-input-wrapper">
-                            <textarea id="chat-input" class="chat-input" placeholder="Enter message..." rows="1"></textarea>
+                            <textarea id="chat-input" class="chat-input" placeholder="Type your message..." rows="1"></textarea>
                             <div class="chat-buttons">
                                 <button id="stop-btn" class="btn btn-small btn-danger hidden">Stop</button>
                                 <button id="continue-btn" class="btn btn-small btn-secondary hidden">Continue</button>
@@ -169,6 +182,7 @@
                         <span class="canvas-header-text">Artifacts</span>
                         <button id="download-all-btn" class="btn btn-small hidden">Download All</button>
                     </div>
+
                     <div id="canvas-content" class="canvas-content">
                         <!-- Artifact Tree -->
                         <div class="artifact-tree">
@@ -176,23 +190,25 @@
                                 <div class="folder-header">
                                     <span class="folder-icon">▶</span>
                                     <span class="folder-name">Code</span>
-                                    <span class="folder-count" id="code-count">(0)</span>
+                                    <span class="folder-count" id="code-count">0</span>
                                 </div>
                                 <div class="folder-content hidden" id="code-artifacts"></div>
                             </div>
+
                             <div class="artifact-folder" data-type="thought">
                                 <div class="folder-header">
                                     <span class="folder-icon">▶</span>
                                     <span class="folder-name">Thoughts</span>
-                                    <span class="folder-count" id="thought-count">(0)</span>
+                                    <span class="folder-count" id="thought-count">0</span>
                                 </div>
                                 <div class="folder-content hidden" id="thought-artifacts"></div>
                             </div>
+
                             <div class="artifact-folder" data-type="document">
                                 <div class="folder-header">
                                     <span class="folder-icon">▶</span>
                                     <span class="folder-name">Documents</span>
-                                    <span class="folder-count" id="document-count">(0)</span>
+                                    <span class="folder-count" id="document-count">0</span>
                                 </div>
                                 <div class="folder-content hidden" id="document-artifacts"></div>
                             </div>
@@ -203,8 +219,8 @@
                             <div class="preview-header">
                                 <span id="preview-title">Preview</span>
                                 <div class="preview-actions">
-                                    <button id="copy-artifact" class="btn btn-small">COPY</button>
-                                    <button id="download-artifact" class="btn btn-small">EXPORT</button>
+                                    <button id="copy-artifact" class="btn btn-small">Copy</button>
+                                    <button id="download-artifact" class="btn btn-small">Export</button>
                                     <button id="close-preview" class="btn btn-small">×</button>
                                 </div>
                             </div>

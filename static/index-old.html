@@ -7,9 +7,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#121214">
     <title>BÖRAK01</title>
-    <link rel="stylesheet" href="static/style-ive.css">
+    <link rel="stylesheet" href="static/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <!-- Syntax Highlighting -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -20,9 +21,19 @@
         <div id="login-view" class="login-view">
             <div class="login-container">
                 <div class="login-header">
-                    <div class="login-logo">B</div>
-                    <h1 class="login-title">BÖRAK01</h1>
-                    <p class="login-subtitle">Private AI Inference</p>
+                    <p class="login-status">[ FACILITY ONLINE ]</p>
+                    <div class="facility-logo">
+                        <div class="ascii-logo-wrapper">
+                            <span class="umlaut-dots">■ ■</span>
+                            <pre class="ascii-logo"> ██████╗ ██████╗ ██████╗  █████╗ ██╗  ██╗ ██████╗  ██╗
+ ██╔══██╗██╔═══██╗██╔══██╗██╔══██╗██║ ██╔╝██╔═████╗███║
+ ██████╔╝██║   ██║██████╔╝███████║█████╔╝ ██║██╔██║╚██║
+ ██╔══██╗██║   ██║██╔══██╗██╔══██║██╔═██╗ ████╔╝██║ ██║
+ ██████╔╝╚██████╔╝██║  ██║██║  ██║██║  ██╗╚██████╔╝ ██║
+ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═╝</pre>
+                        </div>
+                    </div>
+                    <p class="login-subtitle">PRIVATE INFERENCE FACILITY</p>
                 </div>
 
                 <div class="tabs">
@@ -62,7 +73,7 @@
                     <button type="submit" class="btn btn-primary">REGISTER</button>
                 </form>
 
-                <p class="login-footer">End-to-end encrypted • Zero telemetry • Your data stays yours</p>
+                <p class="login-footer">E2E ENCRYPTED // ZERO TELEMETRY // SOVEREIGN DATA</p>
             </div>
         </div>
 
@@ -72,53 +83,51 @@
             <aside id="sidebar" class="sidebar">
                 <div class="sidebar-content">
                     <div class="user-info">
-                        <p class="user-label">Signed in as</p>
-                        <p class="username" id="display-username">Loading...</p>
+                        <p class="user-label">USER</p>
+                        <p class="username" id="display-username">&gt; loading...</p>
                     </div>
 
                     <!-- Sessions Section -->
                     <div class="sidebar-sessions">
                         <div class="sidebar-section-header">
-                            <p class="section-label">Sessions</p>
-                            <button id="new-chat-btn" class="btn btn-small">+ New</button>
+                            <p class="section-label">SESSIONS</p>
+                            <button id="new-chat-btn" class="btn btn-small">+ NEW</button>
                         </div>
                         <div id="session-list" class="session-list">
                             <!-- Sessions will be inserted here -->
                         </div>
-                        <button id="load-more-sessions" class="btn btn-small btn-secondary load-more hidden">Load More</button>
+                        <button id="load-more-sessions" class="btn btn-small load-more hidden">LOAD MORE</button>
                     </div>
 
-                    <div class="sidebar-section">
-                    <p class="section-label">Model</p>
+                    <hr style="border-color: var(--border); margin: 1.5rem 0;">
+
+                    <p class="section-label">MODEL</p>
                     <select id="model-select" class="model-select">
                         <option>Loading models...</option>
                     </select>
-                    <p id="vision-badge" class="vision-badge hidden">Vision Capable</p>
-                    </div>
+                    <p id="vision-badge" class="vision-badge hidden">VISION CAPABLE</p>
 
-                    <div class="sidebar-section">
-                    <p class="section-label">Attach Image</p>
+                    <p class="section-label" style="margin-top: 1.5rem;">ATTACH</p>
                     <div class="file-upload" id="file-upload">
                         <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp">
                         <span class="file-upload-label">Click to upload image</span>
                     </div>
                     <div id="image-preview" class="image-preview hidden">
                         <img id="preview-img" src="" alt="Preview">
-                        <button class="btn btn-small btn-danger" id="remove-image" style="margin-top: 8px; width: 100%;">Remove</button>
-                    </div>
+                        <button class="btn btn-small btn-danger" id="remove-image" style="margin-top: 0.5rem; width: 100%;">REMOVE</button>
                     </div>
 
-                    <div class="sidebar-section">
-                    <p class="section-label">Actions</p>
-                    <div class="sidebar-actions">
-                        <button class="btn btn-small btn-secondary" id="clear-chat">Clear</button>
-                        <button class="btn btn-small btn-danger" id="logout-btn">Logout</button>
-                    </div>
+                    <hr style="border-color: var(--border); margin: 1.5rem 0;">
+
+                    <p class="section-label">ACTIONS</p>
+                    <div class="actions">
+                        <button class="btn btn-small" id="clear-chat">CLEAR</button>
+                        <button class="btn btn-small" id="logout-btn">EXIT</button>
                     </div>
 
                     <div class="sidebar-status">
-                        <p class="status-online">Connected</p>
-                        <p class="status-text">Local inference • Secure</p>
+                        <p class="status-online">CONNECTED</p>
+                        <p class="status-text">LOCAL - SECURE</p>
                     </div>
                 </div>
             </aside>
@@ -126,22 +135,15 @@
             <!-- Sidebar Overlay (Mobile) -->
             <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
-            <!-- Menu Toggle (Mobile) -->
-            <button id="panel-toggle" class="menu-toggle">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="3" y1="12" x2="21" y2="12"></line>
-                    <line x1="3" y1="6" x2="21" y2="6"></line>
-                    <line x1="3" y1="18" x2="21" y2="18"></line>
-                </svg>
-                Menu
-            </button>
+            <!-- Panel Toggle -->
+            <button id="panel-toggle" class="panel-toggle">PANEL</button>
 
             <!-- Main Area -->
             <main class="main-area">
                 <!-- Chat Panel -->
                 <div class="chat-panel">
                     <div class="chat-header">
-                        <span class="chat-header-text">Chat</span>
+                        <span class="chat-header-text">[ TERMINAL ]</span>
                     </div>
                     <div id="messages" class="messages-container">
                         <!-- Messages will be inserted here -->
@@ -150,14 +152,9 @@
                         <div class="chat-input-wrapper">
                             <textarea id="chat-input" class="chat-input" placeholder="Enter message..." rows="1"></textarea>
                             <div class="chat-buttons">
-                                <button id="stop-btn" class="btn btn-small btn-danger hidden">Stop</button>
-                                <button id="continue-btn" class="btn btn-small btn-secondary hidden">Continue</button>
-                                <button id="send-btn" class="send-btn" aria-label="Send message">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <line x1="22" y1="2" x2="11" y2="13"></line>
-                                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                                    </svg>
-                                </button>
+                                <button id="stop-btn" class="btn btn-danger hidden">STOP</button>
+                                <button id="continue-btn" class="btn btn-secondary hidden">CONTINUE</button>
+                                <button id="send-btn" class="send-btn">SEND</button>
                             </div>
                         </div>
                     </div>
@@ -166,8 +163,8 @@
                 <!-- Canvas Panel (Artifacts) -->
                 <div class="canvas-panel">
                     <div class="canvas-header">
-                        <span class="canvas-header-text">Artifacts</span>
-                        <button id="download-all-btn" class="btn btn-small hidden">Download All</button>
+                        <span class="canvas-header-text">[ ARTIFACTS ]</span>
+                        <button id="download-all-btn" class="btn btn-small hidden">ZIP</button>
                     </div>
                     <div id="canvas-content" class="canvas-content">
                         <!-- Artifact Tree -->
@@ -213,9 +210,8 @@
 
                         <!-- Empty State -->
                         <div id="canvas-empty" class="canvas-empty">
-                            <div class="canvas-empty-icon">📦</div>
-                            <p class="canvas-empty-text">No artifacts yet</p>
-                            <p class="canvas-empty-sub">Code blocks and structured content will appear here</p>
+                            <p class="canvas-empty-text">NO ARTIFACTS</p>
+                            <p class="canvas-empty-sub">Code, thoughts, and documents will appear here</p>
                         </div>
                     </div>
                 </div>
