@@ -1259,18 +1259,20 @@ a:hover {
         width: 100%;
     }
 
-    /* Chat panel takes full space */
+    /* Chat panel takes full space, leave room for artifacts sheet */
     .chat-panel {
         flex: 1;
         border-right: none;
         min-height: 0;
+        padding-bottom: 48px; /* Height of collapsed artifacts header */
     }
 
-    /* Messages container scrollable */
+    /* Messages container scrollable, leave room for fixed input */
     .messages-container {
         flex: 1;
         padding: 0.75rem;
-        padding-bottom: 1rem;
+        padding-bottom: 80px; /* Room for fixed input container */
+        overflow-y: auto;
     }
 
     /* Message styling for mobile */
@@ -1323,15 +1325,17 @@ a:hover {
         margin-top: 0.5rem;
     }
 
-    /* Input area fixed at bottom */
+    /* Input area fixed above artifacts sheet */
     .chat-input-container {
-        position: sticky;
-        bottom: 0;
+        position: fixed;
+        bottom: 48px; /* Height of collapsed artifacts header */
+        left: 0;
+        right: 0;
         padding: 0.75rem;
         padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0));
         background: var(--bg-card);
         border-top: 1px solid var(--border);
-        z-index: 50;
+        z-index: 400;
     }
 
     /* Larger touch targets */
