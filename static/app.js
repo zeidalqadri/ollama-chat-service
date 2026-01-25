@@ -607,13 +607,13 @@ async function handleNewChat() {
 function renderMessages() {
     elements.messages.innerHTML = '';
     state.messages.forEach(msg => {
-        addMessageToDOM(msg.role, msg.content, msg.hasImage, msg.model, msg.is_partial);
+        addMessageToDOM(msg.role, msg.content, msg.hasImage, msg.model, msg.is_partial, msg.attachments);
     });
     scrollToBottom();
     updateCanContinue();
 }
 
-function addMessageToDOM(role, content, hasImage = false, modelName = null, isPartial = false) {
+function addMessageToDOM(role, content, hasImage = false, modelName = null, isPartial = false, attachments = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}${isPartial ? ' partial' : ''}`;
 
@@ -622,10 +622,34 @@ function addMessageToDOM(role, content, hasImage = false, modelName = null, isPa
     roleLabel.textContent = role === 'user' ? state.username : (modelName || state.selectedModel);
     messageDiv.appendChild(roleLabel);
 
-    if (hasImage) {
+    // Show attached images (from server attachments or hasImage flag)
+    if (attachments && attachments.length > 0) {
+        const attachContainer = document.createElement('div');
+        attachContainer.className = 'message-attachments';
+
+        attachments.forEach(att => {
+            const imgWrapper = document.createElement('div');
+            imgWrapper.className = 'attachment-preview';
+
+            const img = document.createElement('img');
+            img.src = att.url;
+            img.alt = 'Attached image';
+            img.loading = 'lazy';
+            img.addEventListener('click', () => {
+                // Open in new tab for full view / download
+                window.open(att.download_url, '_blank');
+            });
+
+            imgWrapper.appendChild(img);
+            attachContainer.appendChild(imgWrapper);
+        });
+
+        messageDiv.appendChild(attachContainer);
+    } else if (hasImage) {
+        // Fallback for images sent in current session (not yet persisted or expired)
         const imageLabel = document.createElement('div');
         imageLabel.className = 'image-attached';
-        imageLabel.textContent = 'Image attached';
+        imageLabel.textContent = 'Image attached (processing)';
         messageDiv.appendChild(imageLabel);
     }
 

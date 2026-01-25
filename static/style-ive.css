@@ -879,6 +879,54 @@ body {
     border-radius: var(--radius-xs);
 }
 
+/* Message attachments (persisted images) */
+.message-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-sm);
+}
+
+.attachment-preview {
+    position: relative;
+    max-width: 200px;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all var(--duration-quick) var(--ease-spring);
+}
+
+.attachment-preview:hover {
+    border-color: var(--accent);
+    transform: scale(1.02);
+}
+
+.attachment-preview img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 150px;
+    object-fit: cover;
+}
+
+.attachment-preview::after {
+    content: '🔍';
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    font-size: 12px;
+    background: var(--bg);
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+    opacity: 0;
+    transition: opacity var(--duration-quick) var(--ease-spring);
+}
+
+.attachment-preview:hover::after {
+    opacity: 1;
+}
+
 .message.partial .message-bubble {
     border: 1px dashed var(--warning);
 }

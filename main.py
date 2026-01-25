@@ -42,6 +42,8 @@ DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(DATA_DIR, "users.db")
 CHROMA_PATH = os.path.join(DATA_DIR, "chroma_db")
 STREAM_CACHE_DIR = os.path.join(DATA_DIR, "stream_cache")
+UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
+IMAGE_RETENTION_DAYS = int(os.environ.get("IMAGE_RETENTION_DAYS", "1"))  # Auto-delete after 1 day
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "qwen3-coder:30b")
 VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", "bakllava", "llava-phi", "granite3.2-vision", "minicpm-v"]
 
@@ -53,6 +55,7 @@ ACCESS_TOKEN_EXPIRE_DAYS = 7
 # Ensure directories exist
 Path(STREAM_CACHE_DIR).mkdir(exist_ok=True)
 Path(DATA_DIR).mkdir(exist_ok=True)
+Path(UPLOADS_DIR).mkdir(exist_ok=True)
 
 # Active generations tracking for stop functionality
 # Key: "{user_id}_{session_id}", Value: {"cancel": asyncio.Event, "content": str, "msg_id": int}
@@ -166,6 +169,24 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS usage_log
                  (id INTEGER PRIMARY KEY, user_id INTEGER, model TEXT,
                   tokens_in INTEGER, tokens_out INTEGER, created_at TEXT)''')
+
+    # Message attachments table (time-bound image storage)
+    c.execute('''CREATE TABLE IF NOT EXISTS message_attachments
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  message_id INTEGER,
+                  user_id INTEGER NOT NULL,
+                  filename TEXT NOT NULL,
+                  original_name TEXT,
+                  mime_type TEXT,
+                  file_size INTEGER,
+                  created_at TEXT NOT NULL,
+                  expires_at TEXT NOT NULL,
+                  FOREIGN KEY (message_id) REFERENCES chat_history(id) ON DELETE SET NULL,
+                  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)''')
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_attachments_message
+                 ON message_attachments(message_id)''')
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_attachments_expires
+                 ON message_attachments(expires_at)''')
 
     conn.commit()
 
@@ -298,6 +319,152 @@ def generate_session_title(content: str, max_length: int = 50) -> str:
     return title or "New Chat"
 
 
+# =============================================================================
+# Attachment Management (Time-bound image storage)
+# =============================================================================
+
+import uuid
+import hashlib
+
+def save_attachment(user_id: int, base64_data: str, message_id: int = None) -> dict:
+    """Save a base64 image to disk and record in DB. Returns attachment info."""
+    try:
+        # Decode base64
+        image_data = base64.b64decode(base64_data)
+
+        # Detect mime type from magic bytes
+        mime_type = "image/png"  # default
+        if image_data[:3] == b'\xff\xd8\xff':
+            mime_type = "image/jpeg"
+        elif image_data[:8] == b'\x89PNG\r\n\x1a\n':
+            mime_type = "image/png"
+        elif image_data[:6] in (b'GIF87a', b'GIF89a'):
+            mime_type = "image/gif"
+        elif image_data[:4] == b'RIFF' and image_data[8:12] == b'WEBP':
+            mime_type = "image/webp"
+
+        # Generate unique filename
+        file_hash = hashlib.md5(image_data[:1024]).hexdigest()[:8]
+        ext = mime_type.split("/")[1]
+        filename = f"{user_id}_{uuid.uuid4().hex[:8]}_{file_hash}.{ext}"
+
+        # Save to disk
+        filepath = os.path.join(UPLOADS_DIR, filename)
+        with open(filepath, "wb") as f:
+            f.write(image_data)
+
+        # Record in database
+        now = datetime.now()
+        expires_at = now + timedelta(days=IMAGE_RETENTION_DAYS)
+
+        conn = get_db()
+        c = conn.cursor()
+        c.execute(
+            """INSERT INTO message_attachments
+               (message_id, user_id, filename, mime_type, file_size, created_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (message_id, user_id, filename, mime_type, len(image_data),
+             now.isoformat(), expires_at.isoformat())
+        )
+        attachment_id = c.lastrowid
+        conn.commit()
+        conn.close()
+
+        return {
+            "id": attachment_id,
+            "filename": filename,
+            "mime_type": mime_type,
+            "size": len(image_data),
+            "expires_at": expires_at.isoformat()
+        }
+    except Exception as e:
+        print(f"Error saving attachment: {e}")
+        return None
+
+
+def get_attachment(attachment_id: int, user_id: int = None):
+    """Get attachment info by ID, optionally verify user ownership."""
+    conn = get_db()
+    c = conn.cursor()
+
+    if user_id:
+        c.execute("SELECT * FROM message_attachments WHERE id = ? AND user_id = ?",
+                  (attachment_id, user_id))
+    else:
+        c.execute("SELECT * FROM message_attachments WHERE id = ?", (attachment_id,))
+
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    # Check if expired
+    expires_at = datetime.fromisoformat(row["expires_at"])
+    if datetime.now() > expires_at:
+        return None
+
+    return dict(row)
+
+
+def get_message_attachments(message_id: int) -> list:
+    """Get all attachments for a message."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        """SELECT id, filename, mime_type, file_size, created_at, expires_at
+           FROM message_attachments
+           WHERE message_id = ? AND expires_at > ?""",
+        (message_id, datetime.now().isoformat())
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def link_attachment_to_message(attachment_id: int, message_id: int):
+    """Link an attachment to a message after the message is created."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE message_attachments SET message_id = ? WHERE id = ?",
+              (message_id, attachment_id))
+    conn.commit()
+    conn.close()
+
+
+def cleanup_expired_attachments():
+    """Delete expired attachments from disk and database."""
+    conn = get_db()
+    c = conn.cursor()
+
+    # Find expired attachments
+    c.execute("SELECT id, filename FROM message_attachments WHERE expires_at < ?",
+              (datetime.now().isoformat(),))
+    expired = c.fetchall()
+
+    deleted_count = 0
+    for row in expired:
+        # Delete file
+        filepath = os.path.join(UPLOADS_DIR, row["filename"])
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            deleted_count += 1
+        except Exception as e:
+            print(f"Error deleting file {filepath}: {e}")
+
+    # Delete from database
+    c.execute("DELETE FROM message_attachments WHERE expires_at < ?",
+              (datetime.now().isoformat(),))
+    conn.commit()
+    conn.close()
+
+    if deleted_count > 0:
+        print(f"Cleaned up {deleted_count} expired attachments")
+
+    return deleted_count
+
+
 def save_message(user_id: int, role: str, content: str, model: str, session_id: int = None, is_partial: bool = False):
     conn = get_db()
     c = conn.cursor()
@@ -336,7 +503,7 @@ def update_message(msg_id: int, content: str, is_partial: bool = False):
     conn.close()
 
 
-def load_chat_history(user_id: int, limit: int = 50, session_id: int = None) -> List[dict]:
+def load_chat_history(user_id: int, limit: int = 50, session_id: int = None, include_attachments: bool = False) -> List[dict]:
     conn = get_db()
     c = conn.cursor()
     if session_id:
@@ -350,8 +517,33 @@ def load_chat_history(user_id: int, limit: int = 50, session_id: int = None) -> 
             (user_id, limit)
         )
     rows = c.fetchall()
+
+    messages = []
+    for r in reversed(rows):
+        msg = {
+            "id": r["id"],
+            "role": r["role"],
+            "content": r["content"],
+            "model": r["model"],
+            "is_partial": bool(r["is_partial"])
+        }
+
+        # Include attachments if requested
+        if include_attachments:
+            attachments = get_message_attachments(r["id"])
+            if attachments:
+                msg["attachments"] = [{
+                    "id": a["id"],
+                    "url": f"/api/attachments/{a['id']}",
+                    "download_url": f"/api/attachments/{a['id']}/download",
+                    "mime_type": a["mime_type"],
+                    "expires_at": a["expires_at"]
+                } for a in attachments]
+
+        messages.append(msg)
+
     conn.close()
-    return [{"id": r["id"], "role": r["role"], "content": r["content"], "model": r["model"], "is_partial": bool(r["is_partial"])} for r in reversed(rows)]
+    return messages
 
 
 def clear_chat_history(user_id: int, session_id: int = None):
@@ -866,8 +1058,11 @@ def is_vision_model(model_name: str) -> bool:
 async def lifespan(app: FastAPI):
     # Startup
     init_db()
+    # Cleanup expired attachments on startup
+    cleanup_expired_attachments()
     yield
-    # Shutdown
+    # Shutdown - final cleanup
+    cleanup_expired_attachments()
 
 app = FastAPI(title="BORAK", lifespan=lifespan)
 
@@ -997,8 +1192,8 @@ async def api_chat_history(
     session_id: Optional[int] = None,
     user_id: int = Depends(get_current_user)
 ):
-    """Get chat history for a session."""
-    messages = load_chat_history(user_id, limit=50, session_id=session_id)
+    """Get chat history for a session, including image attachments."""
+    messages = load_chat_history(user_id, limit=50, session_id=session_id, include_attachments=True)
     return {"messages": messages}
 
 
@@ -1067,9 +1262,21 @@ async def api_chat_send(chat: ChatRequest, user_id: int = Depends(get_current_us
     if not session_id:
         session_id = create_session(user_id)
 
+    # Save images first (time-bound storage)
+    attachment_ids = []
+    if chat.images:
+        for img_base64 in chat.images:
+            attachment = save_attachment(user_id, img_base64)
+            if attachment:
+                attachment_ids.append(attachment["id"])
+
     # Save user message
-    save_message(user_id, "user", chat.message, chat.model, session_id)
+    msg_id = save_message(user_id, "user", chat.message, chat.model, session_id)
     chroma_save_message(user_id, "user", chat.message, chat.model)
+
+    # Link attachments to the message
+    for att_id in attachment_ids:
+        link_attachment_to_message(att_id, msg_id)
 
     # Get chat history for context
     history = load_chat_history(user_id, limit=20, session_id=session_id)
@@ -1400,6 +1607,53 @@ async def api_generation_status(user_id: int = Depends(get_current_user)):
 async def api_generation_clear(user_id: int = Depends(get_current_user)):
     clear_generation(user_id)
     return {"success": True}
+
+
+# =============================================================================
+# Attachments API (Time-bound image storage)
+# =============================================================================
+
+@app.get("/api/attachments/{attachment_id}")
+async def api_get_attachment(attachment_id: int, user_id: int = Depends(get_current_user)):
+    """Serve an attachment file (image)."""
+    attachment = get_attachment(attachment_id, user_id)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found or expired")
+
+    filepath = os.path.join(UPLOADS_DIR, attachment["filename"])
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(
+        filepath,
+        media_type=attachment["mime_type"],
+        headers={
+            "Cache-Control": "private, max-age=86400",  # Cache for 1 day
+            "X-Expires-At": attachment["expires_at"]
+        }
+    )
+
+
+@app.get("/api/attachments/{attachment_id}/download")
+async def api_download_attachment(attachment_id: int, user_id: int = Depends(get_current_user)):
+    """Download an attachment with original filename."""
+    attachment = get_attachment(attachment_id, user_id)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found or expired")
+
+    filepath = os.path.join(UPLOADS_DIR, attachment["filename"])
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Use original name or generate one
+    download_name = attachment.get("original_name") or f"image_{attachment_id}.{attachment['mime_type'].split('/')[1]}"
+
+    return FileResponse(
+        filepath,
+        media_type=attachment["mime_type"],
+        filename=download_name
+    )
+
 
 # =============================================================================
 # Static Files & SPA
