@@ -25,6 +25,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from jose import JWTError, jwt
 
+# Local imports
+from sandbox import run_sandboxed_python, generate_html_preview, ExecutionResult
+
 # ChromaDB for persistent chat storage
 try:
     import chromadb
@@ -100,6 +103,20 @@ class StopRequest(BaseModel):
 class ContinueRequest(BaseModel):
     session_id: int
     model: str
+
+
+class ExecutionRequest(BaseModel):
+    code: str
+    language: str = "python"
+    timeout_seconds: int = 30
+    artifact_id: Optional[int] = None
+
+
+class PreviewRequest(BaseModel):
+    html: str
+    css: Optional[str] = None
+    javascript: Optional[str] = None
+    artifact_id: Optional[int] = None
 
 # =============================================================================
 # Database Functions
@@ -188,6 +205,26 @@ def init_db():
                  ON message_attachments(message_id)''')
     c.execute('''CREATE INDEX IF NOT EXISTS idx_attachments_expires
                  ON message_attachments(expires_at)''')
+
+    # Code executions table
+    c.execute('''CREATE TABLE IF NOT EXISTS code_executions
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_id INTEGER NOT NULL,
+                  artifact_id INTEGER,
+                  language TEXT NOT NULL,
+                  code TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  stdout TEXT,
+                  stderr TEXT,
+                  exit_code INTEGER,
+                  execution_time_ms INTEGER,
+                  created_at TEXT NOT NULL,
+                  completed_at TEXT,
+                  preview_html TEXT,
+                  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                  FOREIGN KEY (artifact_id) REFERENCES user_artifacts(id) ON DELETE SET NULL)''')
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_executions_user
+                 ON code_executions(user_id, created_at DESC)''')
 
     conn.commit()
 
@@ -841,6 +878,81 @@ def get_artifact(artifact_id: int, user_id: int) -> Optional[dict]:
             "created_at": row["created_at"]
         }
     return None
+
+
+# =============================================================================
+# Code Execution Functions
+# =============================================================================
+
+def create_execution(user_id: int, language: str, code: str, artifact_id: int = None) -> int:
+    """Create a new execution record and return its ID."""
+    conn = get_db()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    c.execute(
+        """INSERT INTO code_executions
+           (user_id, artifact_id, language, code, status, created_at)
+           VALUES (?, ?, ?, ?, 'pending', ?)""",
+        (user_id, artifact_id, language, code, now)
+    )
+    execution_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return execution_id
+
+
+def update_execution(execution_id: int, status: str, stdout: str = None,
+                     stderr: str = None, exit_code: int = None,
+                     execution_time_ms: int = None, preview_html: str = None):
+    """Update an execution record with results."""
+    conn = get_db()
+    c = conn.cursor()
+    completed_at = datetime.now().isoformat() if status in ('completed', 'failed', 'timeout') else None
+    c.execute(
+        """UPDATE code_executions SET
+           status = ?, stdout = ?, stderr = ?, exit_code = ?,
+           execution_time_ms = ?, completed_at = ?, preview_html = ?
+           WHERE id = ?""",
+        (status, stdout, stderr, exit_code, execution_time_ms, completed_at, preview_html, execution_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_execution(execution_id: int, user_id: int) -> Optional[dict]:
+    """Get a single execution by ID."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        """SELECT id, user_id, artifact_id, language, code, status,
+                  stdout, stderr, exit_code, execution_time_ms,
+                  created_at, completed_at, preview_html
+           FROM code_executions WHERE id = ? AND user_id = ?""",
+        (execution_id, user_id)
+    )
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return None
+
+
+def get_executions_history(user_id: int, limit: int = 20) -> List[dict]:
+    """Get execution history for a user."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        """SELECT id, artifact_id, language, status, exit_code,
+                  execution_time_ms, created_at, completed_at
+           FROM code_executions
+           WHERE user_id = ?
+           ORDER BY created_at DESC
+           LIMIT ?""",
+        (user_id, limit)
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 # =============================================================================
 # ChromaDB Functions
@@ -1655,6 +1767,148 @@ async def api_download_attachment(attachment_id: int, user_id: int = Depends(get
         media_type=attachment["mime_type"],
         filename=download_name
     )
+
+
+# =============================================================================
+# Code Execution Routes
+# =============================================================================
+
+@app.post("/api/execute/python")
+async def api_execute_python(req: ExecutionRequest, user_id: int = Depends(get_current_user)):
+    """Execute Python code in a sandboxed environment and stream results via SSE."""
+    # Create execution record
+    execution_id = create_execution(user_id, req.language, req.code, req.artifact_id)
+
+    async def generate_stream():
+        # Emit started event
+        yield f"data: {json.dumps({'type': 'started', 'execution_id': execution_id})}\n\n"
+
+        # Update status to running
+        update_execution(execution_id, 'running')
+
+        try:
+            # Run the code in sandbox
+            result = await run_sandboxed_python(
+                req.code,
+                timeout_seconds=min(req.timeout_seconds, 60)
+            )
+
+            # Stream stdout line by line for real-time output
+            if result.stdout:
+                for line in result.stdout.split('\n'):
+                    yield f"data: {json.dumps({'type': 'stdout', 'content': line + chr(10)})}\n\n"
+
+            # Stream stderr
+            if result.stderr:
+                for line in result.stderr.split('\n'):
+                    yield f"data: {json.dumps({'type': 'stderr', 'content': line + chr(10)})}\n\n"
+
+            # Determine final status
+            if result.timed_out:
+                status = 'timeout'
+                yield f"data: {json.dumps({'type': 'timeout', 'execution_time_ms': result.execution_time_ms})}\n\n"
+            elif result.exit_code == 0:
+                status = 'completed'
+            else:
+                status = 'failed'
+
+            # Update execution record with results
+            update_execution(
+                execution_id,
+                status=status,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                exit_code=result.exit_code,
+                execution_time_ms=result.execution_time_ms
+            )
+
+            # Emit completed event
+            yield f"data: {json.dumps({'type': 'completed', 'exit_code': result.exit_code, 'execution_time_ms': result.execution_time_ms})}\n\n"
+
+        except Exception as e:
+            error_msg = str(e)
+            update_execution(execution_id, 'failed', stderr=error_msg, exit_code=-1)
+            yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
+
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@app.post("/api/execute/preview")
+async def api_create_preview(req: PreviewRequest, user_id: int = Depends(get_current_user)):
+    """Generate an HTML preview and store it for viewing."""
+    # Generate the preview HTML
+    preview_html = generate_html_preview(
+        html=req.html,
+        css=req.css or '',
+        javascript=req.javascript or ''
+    )
+
+    # Create execution record for preview
+    execution_id = create_execution(
+        user_id,
+        language='html',
+        code=req.html,
+        artifact_id=req.artifact_id
+    )
+
+    # Update with preview content
+    update_execution(
+        execution_id,
+        status='completed',
+        preview_html=preview_html,
+        exit_code=0,
+        execution_time_ms=0
+    )
+
+    return {
+        "success": True,
+        "execution_id": execution_id,
+        "preview_url": f"/api/executions/{execution_id}/preview"
+    }
+
+
+@app.get("/api/executions/{execution_id}/preview")
+async def api_get_preview(execution_id: int, user_id: int = Depends(get_current_user)):
+    """Serve the HTML preview for an execution."""
+    execution = get_execution(execution_id, user_id)
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+
+    if not execution.get("preview_html"):
+        raise HTTPException(status_code=400, detail="No preview available for this execution")
+
+    return Response(
+        content=execution["preview_html"],
+        media_type="text/html",
+        headers={
+            "Content-Security-Policy": "default-src 'self' 'unsafe-inline' data:; script-src 'unsafe-inline'; style-src 'unsafe-inline';",
+            "X-Frame-Options": "SAMEORIGIN"
+        }
+    )
+
+
+@app.get("/api/executions")
+async def api_get_executions(limit: int = 20, user_id: int = Depends(get_current_user)):
+    """Get execution history for the user."""
+    executions = get_executions_history(user_id, limit)
+    return {"executions": executions}
+
+
+@app.get("/api/executions/{execution_id}")
+async def api_get_execution(execution_id: int, user_id: int = Depends(get_current_user)):
+    """Get a specific execution record."""
+    execution = get_execution(execution_id, user_id)
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    return execution
 
 
 # =============================================================================
