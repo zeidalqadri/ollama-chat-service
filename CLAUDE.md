@@ -105,6 +105,14 @@ VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", ...]
 | `DATA_DIR` | `.` | Directory for SQLite and ChromaDB |
 | `SECRET_KEY` | auto-generated | JWT signing key (set in production!) |
 | `DEFAULT_MODEL` | `qwen3-coder:30b` | Default model selection |
+| `IMAGE_RETENTION_DAYS` | `1` | Days to keep uploaded images before auto-cleanup |
+
+## Cookie Security
+The `secure` flag in `response.set_cookie()` must match your deployment:
+- **HTTP**: `secure=False` (development, local testing)
+- **HTTPS**: `secure=True` (production)
+
+If cookies aren't being set (401 errors on all API calls after login), check this setting in `main.py` line ~1102.
 
 ## Migration from Streamlit
 The app was migrated from Streamlit to FastAPI to eliminate DOM ghost issues.

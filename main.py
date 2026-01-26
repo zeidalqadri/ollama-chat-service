@@ -1099,7 +1099,7 @@ async def api_login(user: UserLogin, response: Response):
         key="access_token",
         value=token,
         httponly=True,
-        secure=True,  # Required for HTTPS/iOS
+        secure=False,  # Set True for HTTPS/production
         path="/",     # Ensure cookie is sent for all paths
         max_age=ACCESS_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         samesite="lax"
