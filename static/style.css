@@ -1599,38 +1599,44 @@ a:hover {
 .modal-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
 }
 
 .modal-content {
     position: relative;
+    z-index: 1;
     background: var(--bg-card);
     border: 1px solid var(--border);
+    border-radius: 16px;
     width: 90%;
-    max-width: 500px;
-    max-height: 90vh;
+    max-width: 380px;
+    max-height: 85vh;
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    box-shadow:
+        0 2px 8px rgba(0, 0, 0, 0.2),
+        0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem 1.25rem;
+    padding: 16px 24px;
     border-bottom: 1px solid var(--border);
 }
 
 .modal-title {
     color: var(--text);
-    font-size: 1rem;
-    font-weight: 500;
-    letter-spacing: 0.1em;
+    font-size: 1.125rem;
+    font-weight: 600;
 }
 
 .modal-body {
-    padding: 1.25rem;
+    padding: 24px;
     overflow-y: auto;
     flex: 1;
 }
@@ -1638,9 +1644,40 @@ a:hover {
 .modal-footer {
     display: flex;
     justify-content: flex-end;
-    gap: 0.5rem;
-    padding: 1rem 1.25rem;
+    gap: 12px;
+    padding: 16px 24px;
     border-top: 1px solid var(--border);
+}
+
+.modal-footer .btn {
+    min-width: 80px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.modal-footer .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted, #888);
+}
+
+.modal-footer .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--text-muted, #888);
+}
+
+.modal-footer .btn:not(.btn-secondary) {
+    background: var(--accent);
+    border: none;
+    color: #000;
+}
+
+.modal-footer .btn:not(.btn-secondary):hover {
+    filter: brightness(1.1);
 }
 
 /* ============================================
@@ -1648,11 +1685,23 @@ a:hover {
 ============================================ */
 
 .settings-section {
-    margin-bottom: 1.25rem;
+    margin-bottom: 24px;
 }
 
 .settings-section:last-child {
     margin-bottom: 0;
+}
+
+#prompt-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    transition: opacity 0.2s ease;
+}
+
+#prompt-controls.disabled {
+    opacity: 0.4;
+    pointer-events: none;
 }
 
 .settings-row {
@@ -1675,75 +1724,101 @@ a:hover {
 .settings-desc {
     display: block;
     color: var(--muted);
-    font-size: 0.7rem;
-    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    margin-top: 4px;
 }
 
-/* Toggle Switch */
+/* Toggle Switch - iOS style */
 .toggle {
     position: relative;
     display: inline-block;
-    width: 44px;
-    height: 24px;
+    width: 51px;
+    height: 31px;
     flex-shrink: 0;
 }
 
 .toggle input {
+    position: absolute;
     opacity: 0;
     width: 0;
     height: 0;
+    pointer-events: none;
 }
 
 .toggle-slider {
     position: absolute;
     cursor: pointer;
     inset: 0;
-    background: var(--bg-input);
-    border: 1px solid var(--border);
-    transition: all 0.2s ease;
-    border-radius: 12px;
+    background: #39393D;
+    border: none;
+    border-radius: 16px;
+    transition: background-color 0.25s ease;
 }
 
 .toggle-slider::before {
     position: absolute;
     content: '';
-    height: 18px;
-    width: 18px;
+    height: 27px;
+    width: 27px;
     left: 2px;
-    bottom: 2px;
-    background: var(--muted);
-    transition: all 0.2s ease;
+    top: 2px;
+    background: #fff;
     border-radius: 50%;
+    transition: transform 0.25s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .toggle input:checked + .toggle-slider {
-    border-color: var(--accent);
-    background: var(--accent-glow);
+    background: var(--accent);
 }
 
 .toggle input:checked + .toggle-slider::before {
     transform: translateX(20px);
-    background: var(--accent);
+}
+
+/* Preset Select */
+.preset-select {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 12px 16px;
+    font-family: var(--font);
+    font-size: 0.875rem;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23808080' stroke-width='2'%3E%3Cpolyline points='6,9 12,15 18,9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+}
+
+.preset-select:focus {
+    border-color: var(--accent-dim);
 }
 
 /* Prompt Textarea */
 .prompt-textarea {
     width: 100%;
-    min-height: 120px;
-    max-height: 200px;
+    min-height: 100px;
+    max-height: 160px;
     background: var(--bg-input);
     border: 1px solid var(--border);
+    border-radius: 12px;
     color: var(--text);
-    padding: 0.75rem;
+    padding: 16px;
     font-family: var(--font);
-    font-size: 0.85rem;
-    resize: vertical;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    resize: none;
     outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .prompt-textarea:focus {
     border-color: var(--accent-dim);
-    box-shadow: 0 0 12px var(--accent-glow);
+    box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 .prompt-textarea::placeholder {
@@ -1753,8 +1828,7 @@ a:hover {
 .char-counter {
     text-align: right;
     color: var(--muted);
-    font-size: 0.65rem;
-    margin-top: 0.5rem;
+    font-size: 0.75rem;
 }
 
 /* Sidebar Actions */

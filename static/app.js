@@ -1248,13 +1248,77 @@ function openSettingsModal() {
     // Populate presets dropdown
     populatePresets();
 
+    // Update visual state of prompt controls
+    updatePromptControlsState();
+
     // Show modal
     elements.settingsModal.classList.remove('hidden');
+
+    // Focus management: focus first interactive element
+    setTimeout(() => {
+        const firstFocusable = elements.settingsModal.querySelector('button, input, select, textarea');
+        if (firstFocusable) firstFocusable.focus();
+    }, 100);
+
+    // Add escape key listener
+    document.addEventListener('keydown', handleModalEscape);
+}
+
+// Store the element that opened the modal for focus return
+let modalTriggerElement = null;
+
+function updatePromptControlsState() {
+    const controls = document.getElementById('prompt-controls');
+    if (controls) {
+        if (elements.systemPromptEnabled.checked) {
+            controls.classList.remove('disabled');
+        } else {
+            controls.classList.add('disabled');
+        }
+    }
 }
 
 function closeSettingsModal() {
     elements.settingsModal.classList.add('hidden');
+
+    // Remove escape listener
+    document.removeEventListener('keydown', handleModalEscape);
+
+    // Return focus to trigger element
+    if (modalTriggerElement) {
+        modalTriggerElement.focus();
+        modalTriggerElement = null;
+    }
 }
+
+function handleModalEscape(e) {
+    if (e.key === 'Escape' && !elements.settingsModal.classList.contains('hidden')) {
+        closeSettingsModal();
+    }
+}
+
+// Focus trap for modal
+function trapFocusInModal(e) {
+    if (elements.settingsModal.classList.contains('hidden')) return;
+
+    const focusableElements = elements.settingsModal.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+    );
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+
+    if (e.key === 'Tab') {
+        if (e.shiftKey && document.activeElement === firstElement) {
+            e.preventDefault();
+            lastElement.focus();
+        } else if (!e.shiftKey && document.activeElement === lastElement) {
+            e.preventDefault();
+            firstElement.focus();
+        }
+    }
+}
+
+document.addEventListener('keydown', trapFocusInModal);
 
 function populatePresets() {
     // Clear existing options safely
@@ -1287,7 +1351,10 @@ function updateCharCount() {
 
 // Settings button click
 if (elements.settingsBtn) {
-    elements.settingsBtn.addEventListener('click', openSettingsModal);
+    elements.settingsBtn.addEventListener('click', () => {
+        modalTriggerElement = elements.settingsBtn;
+        openSettingsModal();
+    });
 }
 
 // Close settings modal
@@ -1319,6 +1386,11 @@ if (elements.presetSelect) {
 // Character counter
 if (elements.systemPromptInput) {
     elements.systemPromptInput.addEventListener('input', updateCharCount);
+}
+
+// Toggle state change
+if (elements.systemPromptEnabled) {
+    elements.systemPromptEnabled.addEventListener('change', updatePromptControlsState);
 }
 
 // Save settings
