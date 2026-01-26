@@ -310,12 +310,17 @@ async function loadChatHistory(sessionId = null) {
         if (response.ok) {
             const data = await response.json();
             state.messages = data.messages || [];
-            return state.messages;
+
+            // Return both messages and last_model
+            return {
+                messages: state.messages,
+                lastModel: data.last_model || null
+            };
         }
     } catch (e) {
         console.error('Failed to load chat history:', e);
     }
-    return [];
+    return { messages: [], lastModel: null };
 }
 
 async function clearChatHistory(sessionId = null) {
@@ -648,8 +653,17 @@ async function switchSession(sessionId) {
     });
 
     // Load messages and artifacts for this session
-    await loadChatHistory(sessionId);
+    const { lastModel } = await loadChatHistory(sessionId);
     await loadArtifacts(sessionId);
+
+    // Restore the last used model for this session
+    if (lastModel && state.models.includes(lastModel)) {
+        state.selectedModel = lastModel;
+        if (elements.modelSelect) {
+            elements.modelSelect.value = lastModel;
+        }
+        updateVisionBadge();
+    }
 
     renderMessages();
     renderArtifacts();
@@ -1803,8 +1817,17 @@ async function initChat() {
 
     // Load chat history and artifacts for current session
     if (state.currentSessionId) {
-        await loadChatHistory(state.currentSessionId);
+        const { lastModel } = await loadChatHistory(state.currentSessionId);
         await loadArtifacts(state.currentSessionId);
+
+        // Restore the last used model for this session
+        if (lastModel && state.models.includes(lastModel)) {
+            state.selectedModel = lastModel;
+            if (elements.modelSelect) {
+                elements.modelSelect.value = lastModel;
+            }
+            updateVisionBadge();
+        }
     }
 
     renderMessages();
