@@ -1439,6 +1439,64 @@ async def api_clear_chat(
     return {"success": True}
 
 
+def extract_code_title(code: str, lang: str) -> str:
+    """Extract a meaningful title from code content."""
+    lines = code.strip().split('\n')
+    if not lines:
+        return f"{lang.capitalize()} Code"
+
+    first_line = lines[0].strip()
+
+    # Check for comment-based titles at the start
+    comment_patterns = [
+        # Single-line comments: # Title, // Title, -- Title
+        (r'^#\s*(.+)$', ['python', 'ruby', 'bash', 'shell', 'yaml', 'yml']),
+        (r'^//\s*(.+)$', ['javascript', 'typescript', 'java', 'c', 'cpp', 'go', 'rust', 'swift', 'kotlin']),
+        (r'^--\s*(.+)$', ['sql', 'lua', 'haskell']),
+        # Block comment start: /* Title */ or /** Title */
+        (r'^/\*+\s*(.+?)\s*\*?/?$', ['javascript', 'typescript', 'java', 'c', 'cpp', 'css']),
+        # HTML/XML comment: <!-- Title -->
+        (r'^<!--\s*(.+?)\s*-->$', ['html', 'xml', 'svg']),
+        # Shebang with description: #!/usr/bin/env python - Title
+        (r'^#!.+?[-–]\s*(.+)$', ['python', 'bash', 'shell']),
+    ]
+
+    for pattern, langs in comment_patterns:
+        if lang.lower() in langs or not langs:
+            match = re.match(pattern, first_line)
+            if match:
+                title = match.group(1).strip()
+                # Clean up common prefixes
+                title = re.sub(r'^(file|filename|name|title):\s*', '', title, flags=re.IGNORECASE)
+                if title and len(title) > 2 and len(title) < 100:
+                    return title
+
+    # Check for function/class definitions
+    def_patterns = [
+        (r'^(?:async\s+)?def\s+(\w+)', 'function'),  # Python
+        (r'^(?:async\s+)?function\s+(\w+)', 'function'),  # JavaScript
+        (r'^(?:export\s+)?(?:async\s+)?(?:const|let|var)\s+(\w+)\s*=', 'variable'),  # JS const/let
+        (r'^class\s+(\w+)', 'class'),  # Python/JS class
+        (r'^(?:public|private|protected)?\s*(?:static\s+)?(?:class|interface)\s+(\w+)', 'class'),  # Java/TS
+        (r'^(?:pub\s+)?(?:async\s+)?fn\s+(\w+)', 'function'),  # Rust
+        (r'^func\s+(\w+)', 'function'),  # Go
+        (r'^(?:export\s+)?(?:default\s+)?(?:const|function)\s+(\w+)', 'component'),  # React
+    ]
+
+    for line in lines[:5]:  # Check first 5 lines
+        line = line.strip()
+        for pattern, kind in def_patterns:
+            match = re.match(pattern, line)
+            if match:
+                name = match.group(1)
+                if name and name not in ('main', 'init', 'constructor', '__init__'):
+                    return f"{name} ({kind})"
+
+    # Check if there's a filename pattern in context before the code block
+    # Fallback to language-based title
+    return f"{lang.capitalize()} Code"
+
+
 def extract_artifacts_from_response(content: str) -> List[dict]:
     """Extract code blocks, thoughts, and explanations from response."""
     artifacts = []
@@ -1449,10 +1507,11 @@ def extract_artifacts_from_response(content: str) -> List[dict]:
         lang = match.group(1) or 'text'
         code = match.group(2).strip()
         if code:
+            title = extract_code_title(code, lang)
             artifacts.append({
                 "type": "code",
                 "language": lang,
-                "title": f"{lang.capitalize()} Code",
+                "title": title,
                 "content": code
             })
 
