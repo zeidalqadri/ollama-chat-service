@@ -1853,6 +1853,9 @@ function initVoiceRecognition() {
         // Auto-insert transcript when recording stops
         if (state.voiceTranscript.trim()) {
             insertVoiceTranscript();
+        } else {
+            // Clean up preview if no transcript
+            removeVoicePreview();
         }
     };
 
@@ -1899,6 +1902,12 @@ function updateVoiceUI() {
 }
 
 function updateVoicePreview() {
+    // Don't show preview if not recording and no transcript
+    if (!state.isRecording && !state.voiceTranscript) {
+        removeVoicePreview();
+        return;
+    }
+
     let preview = document.getElementById('voice-preview');
 
     if (!preview) {
