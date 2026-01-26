@@ -6,6 +6,7 @@ Added voice-to-text input feature to BÖRAK01 iOS app using Apple's Speech frame
 ## Commits This Session
 - `ce329e2` - feat(ios): add voice-to-text input using Apple Speech framework
 - `a324ac1` - fix(ios): auto-insert transcription when recording stops
+- `5ed1e40` - feat(web): add voice-to-text input using Web Speech API
 
 ## What Was Done
 
@@ -61,6 +62,14 @@ Updated `BORAK01.xcodeproj/project.pbxproj`:
 ### 5. Bugfix: Auto-Insert on Recording Stop
 Initial implementation watched `transcribedText` changes, but when recording stops the text doesn't change - only `isRecording` does. Fixed by watching `isRecording` state transition to `false`.
 
+### 6. Web Voice Input (Web Speech API)
+Added matching voice input to web app:
+- **HTML**: Microphone button with mic/stop icons next to attach button
+- **JS**: `initVoiceRecognition()`, `toggleVoiceRecording()`, `updateVoicePreview()`, `insertVoiceTranscript()`
+- **CSS**: `.voice-btn`, `.voice-preview`, pulse animation for recording state
+- **Fallback**: Button hidden if browser doesn't support Speech API
+- **Files**: `static/index.html`, `static/app.js`, `static/style-ive.css`
+
 ## Deployment
 - Tested on physical device: zeidgeistdotcom (iOS 26.2)
 - Voice input working with auto-insert on stop
@@ -68,7 +77,7 @@ Initial implementation watched `transcribedText` changes, but when recording sto
 ## Repository Status
 ```
 BORAK01-iOS: master @ a324ac1 (clean)
-ollama-chat-service: master @ 153c445 (needs handoff update)
+ollama-chat-service: master @ 5ed1e40 (clean)
 ```
 
 ## Next Steps (Optional)
