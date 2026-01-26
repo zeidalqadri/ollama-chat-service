@@ -46,6 +46,7 @@ UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
 IMAGE_RETENTION_DAYS = int(os.environ.get("IMAGE_RETENTION_DAYS", "1"))  # Auto-delete after 1 day
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "qwen3-coder:30b")
 VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", "bakllava", "llava-phi", "granite3.2-vision", "minicpm-v"]
+TRANSLATION_MODELS = ["translategemma", "nllb", "mbart", "seamless"]
 
 # JWT Settings
 SECRET_KEY = os.environ.get("SECRET_KEY", "borak-secret-key-change-in-production-" + str(hash(DATA_DIR)))
@@ -1127,7 +1128,8 @@ async def api_models():
     return {
         "models": models,
         "default": DEFAULT_MODEL,
-        "vision_models": VISION_MODELS
+        "vision_models": VISION_MODELS,
+        "translation_models": TRANSLATION_MODELS
     }
 
 # =============================================================================
