@@ -1,10 +1,11 @@
 # Session Handoff - January 26, 2026 (Session 4)
 
 ## Summary
-Added voice-to-text input feature to BÖRAK01 iOS app using Apple's Speech framework with on-device transcription.
+Added voice-to-text input feature to BÖRAK01 iOS app using Apple's Speech framework with on-device transcription. Tested and deployed to physical device.
 
 ## Commits This Session
 - `ce329e2` - feat(ios): add voice-to-text input using Apple Speech framework
+- `a324ac1` - fix(ios): auto-insert transcription when recording stops
 
 ## What Was Done
 
@@ -57,10 +58,17 @@ Updated `BORAK01.xcodeproj/project.pbxproj`:
 - Requires physical device to test actual speech recognition
 - First use will prompt for microphone + speech recognition permissions
 
+### 5. Bugfix: Auto-Insert on Recording Stop
+Initial implementation watched `transcribedText` changes, but when recording stops the text doesn't change - only `isRecording` does. Fixed by watching `isRecording` state transition to `false`.
+
+## Deployment
+- Tested on physical device: zeidgeistdotcom (iOS 26.2)
+- Voice input working with auto-insert on stop
+
 ## Repository Status
 ```
-BORAK01-iOS: master @ ce329e2 (clean)
-ollama-chat-service: master @ eaf442b (clean)
+BORAK01-iOS: master @ a324ac1 (clean)
+ollama-chat-service: master @ 153c445 (needs handoff update)
 ```
 
 ## Next Steps (Optional)
