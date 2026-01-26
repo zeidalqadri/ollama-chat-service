@@ -37,7 +37,14 @@ const state = {
     artifacts: { code: [], thought: [], explanation: [] },
     selectedArtifact: null,
     // Scroll control - only auto-scroll if user is near bottom
-    userScrolledUp: false
+    userScrolledUp: false,
+    // Settings
+    settings: {
+        system_prompt: null,
+        system_prompt_enabled: true,
+        model_prompts: {}
+    },
+    presets: []
 };
 
 // =============================================================================
@@ -110,7 +117,18 @@ const elements = {
     documentCount: document.getElementById('document-count'),
 
     // Mobile
-    sidebarOverlay: document.getElementById('sidebar-overlay')
+    sidebarOverlay: document.getElementById('sidebar-overlay'),
+
+    // Settings modal
+    settingsBtn: document.getElementById('settings-btn'),
+    settingsModal: document.getElementById('settings-modal'),
+    closeSettings: document.getElementById('close-settings'),
+    cancelSettings: document.getElementById('cancel-settings'),
+    saveSettings: document.getElementById('save-settings'),
+    systemPromptEnabled: document.getElementById('system-prompt-enabled'),
+    presetSelect: document.getElementById('preset-select'),
+    systemPromptInput: document.getElementById('system-prompt-input'),
+    promptCharCount: document.getElementById('prompt-char-count')
 };
 
 // =============================================================================
@@ -355,6 +373,54 @@ async function downloadArtifactsZip(sessionId) {
     } catch (e) {
         console.error('Failed to download artifacts:', e);
     }
+}
+
+// =============================================================================
+// Settings API Functions
+// =============================================================================
+
+async function loadSettings() {
+    try {
+        const response = await api('/user/settings');
+        if (response.ok) {
+            const data = await response.json();
+            state.settings = data;
+            return data;
+        }
+    } catch (e) {
+        console.error('Failed to load settings:', e);
+    }
+    return state.settings;
+}
+
+async function saveSettingsToServer(settings) {
+    try {
+        const response = await api('/user/settings', {
+            method: 'PUT',
+            body: JSON.stringify(settings)
+        });
+        if (response.ok) {
+            state.settings = settings;
+            return true;
+        }
+    } catch (e) {
+        console.error('Failed to save settings:', e);
+    }
+    return false;
+}
+
+async function loadPresets() {
+    try {
+        const response = await api('/prompts/presets');
+        if (response.ok) {
+            const data = await response.json();
+            state.presets = data.presets;
+            return data.presets;
+        }
+    } catch (e) {
+        console.error('Failed to load presets:', e);
+    }
+    return [];
 }
 
 // =============================================================================
@@ -1169,6 +1235,110 @@ elements.logoutBtn.addEventListener('click', async () => {
     showLoginView();
 });
 
+// =============================================================================
+// Settings Modal Handlers
+// =============================================================================
+
+function openSettingsModal() {
+    // Load current settings into the form
+    elements.systemPromptEnabled.checked = state.settings.system_prompt_enabled;
+    elements.systemPromptInput.value = state.settings.system_prompt || '';
+    updateCharCount();
+
+    // Populate presets dropdown
+    populatePresets();
+
+    // Show modal
+    elements.settingsModal.classList.remove('hidden');
+}
+
+function closeSettingsModal() {
+    elements.settingsModal.classList.add('hidden');
+}
+
+function populatePresets() {
+    // Clear existing options safely
+    while (elements.presetSelect.firstChild) {
+        elements.presetSelect.removeChild(elements.presetSelect.firstChild);
+    }
+
+    state.presets.forEach(preset => {
+        const option = document.createElement('option');
+        option.value = preset.id;
+        option.textContent = preset.name;
+        elements.presetSelect.appendChild(option);
+    });
+
+    // Select current preset if it matches
+    const currentPrompt = state.settings.system_prompt;
+    const matchingPreset = state.presets.find(p => p.prompt === currentPrompt);
+    if (matchingPreset) {
+        elements.presetSelect.value = matchingPreset.id;
+    } else if (currentPrompt) {
+        // Custom prompt, don't select any preset
+        elements.presetSelect.value = 'none';
+    }
+}
+
+function updateCharCount() {
+    const count = elements.systemPromptInput.value.length;
+    elements.promptCharCount.textContent = count;
+}
+
+// Settings button click
+if (elements.settingsBtn) {
+    elements.settingsBtn.addEventListener('click', openSettingsModal);
+}
+
+// Close settings modal
+if (elements.closeSettings) {
+    elements.closeSettings.addEventListener('click', closeSettingsModal);
+}
+
+if (elements.cancelSettings) {
+    elements.cancelSettings.addEventListener('click', closeSettingsModal);
+}
+
+// Click outside modal to close
+if (elements.settingsModal) {
+    elements.settingsModal.querySelector('.modal-backdrop').addEventListener('click', closeSettingsModal);
+}
+
+// Preset selection
+if (elements.presetSelect) {
+    elements.presetSelect.addEventListener('change', () => {
+        const presetId = elements.presetSelect.value;
+        const preset = state.presets.find(p => p.id === presetId);
+        if (preset) {
+            elements.systemPromptInput.value = preset.prompt || '';
+            updateCharCount();
+        }
+    });
+}
+
+// Character counter
+if (elements.systemPromptInput) {
+    elements.systemPromptInput.addEventListener('input', updateCharCount);
+}
+
+// Save settings
+if (elements.saveSettings) {
+    elements.saveSettings.addEventListener('click', async () => {
+        const settings = {
+            system_prompt: elements.systemPromptInput.value.trim() || null,
+            system_prompt_enabled: elements.systemPromptEnabled.checked,
+            model_prompts: state.settings.model_prompts || {}
+        };
+
+        const success = await saveSettingsToServer(settings);
+        if (success) {
+            closeSettingsModal();
+        } else {
+            alert('Failed to save settings');
+        }
+    });
+}
+
 // Send message
 elements.sendBtn.addEventListener('click', handleSendMessage);
 
@@ -1524,6 +1694,10 @@ async function handleContinue() {
 async function initChat() {
     await loadModels();
     populateModels();
+
+    // Load settings and presets
+    await loadSettings();
+    await loadPresets();
 
     // Load sessions
     await loadSessions();

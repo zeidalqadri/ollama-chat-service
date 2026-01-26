@@ -372,6 +372,41 @@ body {
     margin-bottom: 1rem;
 }
 
+.user-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.user-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.btn-icon {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 0.4rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+}
+
+.btn-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.btn-icon:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
 .user-label {
     color: var(--muted);
     font-size: 0.65rem;
@@ -1542,4 +1577,192 @@ a:hover {
     .canvas-panel {
         padding-bottom: env(safe-area-inset-bottom);
     }
+}
+
+/* ============================================
+   Modal Styles
+============================================ */
+
+.modal {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.modal-content {
+    position: relative;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.modal-title {
+    color: var(--text);
+    font-size: 1rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+}
+
+.modal-body {
+    padding: 1.25rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid var(--border);
+}
+
+/* ============================================
+   Settings Styles
+============================================ */
+
+.settings-section {
+    margin-bottom: 1.25rem;
+}
+
+.settings-section:last-child {
+    margin-bottom: 0;
+}
+
+.settings-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.settings-label {
+    flex: 1;
+}
+
+.settings-title {
+    display: block;
+    color: var(--text);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.settings-desc {
+    display: block;
+    color: var(--muted);
+    font-size: 0.7rem;
+    margin-top: 0.25rem;
+}
+
+/* Toggle Switch */
+.toggle {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    transition: all 0.2s ease;
+    border-radius: 12px;
+}
+
+.toggle-slider::before {
+    position: absolute;
+    content: '';
+    height: 18px;
+    width: 18px;
+    left: 2px;
+    bottom: 2px;
+    background: var(--muted);
+    transition: all 0.2s ease;
+    border-radius: 50%;
+}
+
+.toggle input:checked + .toggle-slider {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+}
+
+.toggle input:checked + .toggle-slider::before {
+    transform: translateX(20px);
+    background: var(--accent);
+}
+
+/* Prompt Textarea */
+.prompt-textarea {
+    width: 100%;
+    min-height: 120px;
+    max-height: 200px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.75rem;
+    font-family: var(--font);
+    font-size: 0.85rem;
+    resize: vertical;
+    outline: none;
+}
+
+.prompt-textarea:focus {
+    border-color: var(--accent-dim);
+    box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.prompt-textarea::placeholder {
+    color: var(--muted);
+}
+
+.char-counter {
+    text-align: right;
+    color: var(--muted);
+    font-size: 0.65rem;
+    margin-top: 0.5rem;
+}
+
+/* Sidebar Actions */
+.sidebar-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.sidebar-actions .btn {
+    flex: 1;
 }
