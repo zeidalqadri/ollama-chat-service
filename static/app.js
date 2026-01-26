@@ -20,6 +20,7 @@ const state = {
     models: [],
     selectedModel: null,
     visionModels: [],
+    translationModels: [],
     messages: [],
     uploadedImage: null,
     lastOutput: null,
@@ -60,6 +61,7 @@ const elements = {
     displayUsername: document.getElementById('display-username'),
     modelSelect: document.getElementById('model-select'),
     visionBadge: document.getElementById('vision-badge'),
+    translationBadge: document.getElementById('translation-badge'),
     imageInput: document.getElementById('image-input'),
     fileUpload: document.getElementById('file-upload'),
     imagePreview: document.getElementById('image-preview'),
@@ -196,6 +198,7 @@ async function loadModels() {
             const data = await response.json();
             state.models = data.models;
             state.visionModels = data.vision_models;
+            state.translationModels = data.translation_models || [];
             state.selectedModel = data.default;
             return data.models;
         }
@@ -445,6 +448,7 @@ function populateModels() {
         elements.modelSelect.appendChild(option);
     });
     updateVisionBadge();
+    updateTranslationBadge();
 }
 
 function updateVisionBadge() {
@@ -452,6 +456,15 @@ function updateVisionBadge() {
         state.selectedModel.toLowerCase().includes(vm)
     );
     elements.visionBadge.classList.toggle('hidden', !isVision);
+}
+
+function updateTranslationBadge() {
+    const isTranslation = state.translationModels.some(tm =>
+        state.selectedModel.toLowerCase().includes(tm)
+    );
+    if (elements.translationBadge) {
+        elements.translationBadge.classList.toggle('hidden', !isTranslation);
+    }
 }
 
 // =============================================================================
@@ -1044,6 +1057,7 @@ function handleMobileSessionSelect() {
 elements.modelSelect.addEventListener('change', () => {
     state.selectedModel = elements.modelSelect.value;
     updateVisionBadge();
+    updateTranslationBadge();
 });
 
 // Image upload
