@@ -74,7 +74,26 @@ scp -P 1511 main.py static/* root@45.159.230.42:/opt/ollama-ui/
 |--------|----------|-------------|
 | GET | `/api/models` | List available Ollama models |
 
-## Vision Models
+## Available Models
+
+| Model | Size | Purpose | Notes |
+|-------|------|---------|-------|
+| `qwen3-coder:30b` | 18 GB | General coding | Default model |
+| `guardpoint:latest` | 15 GB | Medical reasoning | Qwen3-14B fine-tuned on medical data |
+| `deepseek-ocr:latest` | 6.7 GB | Vision/OCR | Image understanding |
+| `translategemma:latest` | 3.3 GB | Translation | Multi-language translation |
+
+### Guardpoint (Medical Specialist)
+Based on [Qwen3-14B-Guardpoint](https://huggingface.co/ValiantLabs/Qwen3-14B-Guardpoint) - a medical reasoning model trained on clinical data across multiple disciplines (cardiology, neurology, oncology, radiology, etc.).
+
+Features:
+- Extended reasoning via `<think>` blocks (captured as artifacts)
+- Structured diagnostic output
+- Differential diagnosis support
+
+⚠️ **Disclaimer**: Not a substitute for professional medical advice.
+
+### Vision Models
 Vision-capable models are auto-detected by name pattern:
 ```python
 VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", ...]
