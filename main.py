@@ -118,6 +118,22 @@ class PreviewRequest(BaseModel):
     javascript: Optional[str] = None
     artifact_id: Optional[int] = None
 
+
+class SystemPromptUpdate(BaseModel):
+    system_prompt: Optional[str] = None
+    system_prompt_enabled: bool = True
+    model_prompts: Optional[Dict[str, str]] = None
+
+
+# System prompt presets
+SYSTEM_PROMPT_PRESETS = [
+    {"id": "none", "name": "Default (none)", "prompt": None},
+    {"id": "helpful", "name": "Helpful Assistant", "prompt": "You are a helpful, harmless, and honest AI assistant. Provide clear, accurate, and thoughtful responses."},
+    {"id": "coder", "name": "Code Expert", "prompt": "You are an expert programmer. Provide clean, efficient, and well-documented code. Explain your reasoning and suggest best practices."},
+    {"id": "concise", "name": "Concise", "prompt": "Be brief and to the point. Provide short, direct answers without unnecessary elaboration."},
+    {"id": "creative", "name": "Creative Writer", "prompt": "You are a creative writing assistant. Help with storytelling, poetry, and creative content with vivid language and imagination."},
+]
+
 # =============================================================================
 # Database Functions
 # =============================================================================
@@ -226,6 +242,17 @@ def init_db():
     c.execute('''CREATE INDEX IF NOT EXISTS idx_executions_user
                  ON code_executions(user_id, created_at DESC)''')
 
+    # User settings table (system prompts, preferences)
+    c.execute('''CREATE TABLE IF NOT EXISTS user_settings
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_id INTEGER NOT NULL UNIQUE,
+                  system_prompt TEXT,
+                  system_prompt_enabled INTEGER DEFAULT 1,
+                  model_prompts TEXT,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)''')
+
     conn.commit()
 
     # Run migrations for existing data
@@ -320,6 +347,86 @@ def get_username(user_id: int) -> Optional[str]:
     result = c.fetchone()
     conn.close()
     return result["username"] if result else None
+
+
+def get_user_settings(user_id: int) -> dict:
+    """Get user settings, returning defaults if none exist."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT system_prompt, system_prompt_enabled, model_prompts FROM user_settings WHERE user_id = ?", (user_id,))
+    result = c.fetchone()
+    conn.close()
+
+    if result:
+        return {
+            "system_prompt": result["system_prompt"],
+            "system_prompt_enabled": bool(result["system_prompt_enabled"]),
+            "model_prompts": json.loads(result["model_prompts"]) if result["model_prompts"] else {}
+        }
+
+    # Return defaults
+    return {
+        "system_prompt": None,
+        "system_prompt_enabled": True,
+        "model_prompts": {}
+    }
+
+
+def update_user_settings(user_id: int, settings: dict) -> bool:
+    """Upsert user settings."""
+    conn = get_db()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+
+    # Enforce 4000 char limit on system prompt
+    system_prompt = settings.get("system_prompt")
+    if system_prompt and len(system_prompt) > 4000:
+        system_prompt = system_prompt[:4000]
+
+    model_prompts = settings.get("model_prompts", {})
+    # Enforce limit on model-specific prompts too
+    for key in model_prompts:
+        if model_prompts[key] and len(model_prompts[key]) > 4000:
+            model_prompts[key] = model_prompts[key][:4000]
+
+    model_prompts_json = json.dumps(model_prompts) if model_prompts else None
+
+    try:
+        # Try insert first
+        c.execute(
+            """INSERT INTO user_settings (user_id, system_prompt, system_prompt_enabled, model_prompts, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+               system_prompt = excluded.system_prompt,
+               system_prompt_enabled = excluded.system_prompt_enabled,
+               model_prompts = excluded.model_prompts,
+               updated_at = excluded.updated_at""",
+            (user_id, system_prompt, 1 if settings.get("system_prompt_enabled", True) else 0, model_prompts_json, now, now)
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error updating user settings: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_system_prompt_for_model(user_id: int, model: str) -> Optional[str]:
+    """Get the effective system prompt for a user and model."""
+    settings = get_user_settings(user_id)
+
+    if not settings.get("system_prompt_enabled", True):
+        return None
+
+    # Check for model-specific prompt first
+    model_prompts = settings.get("model_prompts", {})
+    if model in model_prompts and model_prompts[model]:
+        return model_prompts[model]
+
+    # Fall back to global prompt
+    return settings.get("system_prompt")
+
 
 def log_usage(user_id: int, model: str, tokens_in: int, tokens_out: int):
     conn = get_db()
@@ -1423,6 +1530,11 @@ async def api_chat_send(chat: ChatRequest, user_id: int = Depends(get_current_us
         try:
             payload = {"model": chat.model, "messages": messages, "stream": True}
 
+            # Add system prompt if configured
+            system_prompt = get_system_prompt_for_model(user_id, chat.model)
+            if system_prompt:
+                payload["system"] = system_prompt
+
             async with httpx.AsyncClient(timeout=600) as client:
                 async with client.stream("POST", f"{OLLAMA_URL}/api/chat", json=payload) as response:
                     if response.status_code == 200:
@@ -1545,6 +1657,11 @@ async def api_chat_continue(cont: ContinueRequest, user_id: int = Depends(get_cu
 
         try:
             payload = {"model": cont.model, "messages": messages, "stream": True}
+
+            # Add system prompt if configured
+            system_prompt = get_system_prompt_for_model(user_id, cont.model)
+            if system_prompt:
+                payload["system"] = system_prompt
 
             async with httpx.AsyncClient(timeout=600) as client:
                 async with client.stream("POST", f"{OLLAMA_URL}/api/chat", json=payload) as response:
@@ -1704,6 +1821,39 @@ async def api_download_user_artifacts(user_id: int = Depends(get_current_user)):
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=my_artifacts.zip"}
     )
+
+
+# =============================================================================
+# User Settings Routes
+# =============================================================================
+
+@app.get("/api/user/settings")
+async def api_get_user_settings(user_id: int = Depends(get_current_user)):
+    """Get user settings including system prompt configuration."""
+    settings = get_user_settings(user_id)
+    return settings
+
+
+@app.put("/api/user/settings")
+async def api_update_user_settings(
+    settings: SystemPromptUpdate,
+    user_id: int = Depends(get_current_user)
+):
+    """Update user settings."""
+    success = update_user_settings(user_id, {
+        "system_prompt": settings.system_prompt,
+        "system_prompt_enabled": settings.system_prompt_enabled,
+        "model_prompts": settings.model_prompts or {}
+    })
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update settings")
+    return {"success": True}
+
+
+@app.get("/api/prompts/presets")
+async def api_get_prompt_presets(user_id: int = Depends(get_current_user)):
+    """Get available system prompt presets."""
+    return {"presets": SYSTEM_PROMPT_PRESETS}
 
 
 # =============================================================================
