@@ -52,10 +52,22 @@
 - `index-old.html` - Backup of original HTML
 - `app.js` - Added inline attachment handlers, message attachments display
 
-## Critical: Backend Restart Required
+## Critical: Backend Configuration
 
-The backend needs restart to apply the new attachment system:
+### Cookie Security Setting
+The `secure` cookie flag must match your deployment:
+- `secure=False` for HTTP access (development, local testing)
+- `secure=True` for HTTPS/production
 
+This was fixed in `main.py` line 1102. Without this, cookies won't be set over HTTP and all authenticated API calls will return 401.
+
+### Firewall
+Port 8012 must be open:
+```bash
+ufw allow 8012/tcp
+```
+
+### Backend Restart
 ```bash
 ssh -p 1511 root@45.159.230.42
 pkill -f uvicorn
