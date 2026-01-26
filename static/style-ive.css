@@ -751,6 +751,98 @@ body {
     cursor: not-allowed;
 }
 
+/* Attach and Voice buttons */
+.attach-btn,
+.voice-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 0.5rem;
+    cursor: pointer;
+    transition: color 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+}
+
+.attach-btn:hover,
+.voice-btn:hover {
+    color: var(--text);
+}
+
+.attach-btn svg,
+.voice-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+.voice-btn.recording {
+    color: var(--error, #ff453a);
+    animation: voice-pulse 1s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Voice transcription preview */
+.voice-preview {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    font-size: 0.85rem;
+    color: var(--text-secondary, var(--muted));
+}
+
+.voice-preview.recording {
+    border-color: var(--error, #ff453a);
+}
+
+.voice-preview .recording-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--error, #ff453a);
+    border-radius: 50%;
+    animation: voice-pulse 0.6s ease-in-out infinite;
+}
+
+.voice-preview .transcript {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.voice-preview .voice-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.voice-preview .voice-action-btn {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.voice-preview .voice-action-btn:hover {
+    text-decoration: underline;
+}
+
+.voice-preview .voice-action-btn.dismiss {
+    color: var(--muted);
+}
+
 /* Canvas Panel */
 .canvas-panel {
     flex: 2;
