@@ -1415,7 +1415,17 @@ async def api_chat_history(
 ):
     """Get chat history for a session, including image attachments."""
     messages = load_chat_history(user_id, limit=50, session_id=session_id, include_attachments=True)
-    return {"messages": messages}
+
+    # Get the last used model for this session (from most recent message)
+    last_model = None
+    if messages:
+        # Find the last message that has a model (user messages have the model they were sent with)
+        for msg in reversed(messages):
+            if msg.get("model"):
+                last_model = msg["model"]
+                break
+
+    return {"messages": messages, "last_model": last_model}
 
 
 @app.delete("/api/chat/clear")
