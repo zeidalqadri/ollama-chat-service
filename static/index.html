@@ -78,14 +78,14 @@
                                 <p class="username" id="display-username">Loading...</p>
                             </div>
                             <div class="user-actions">
-                                <button id="settings-btn" class="btn-icon" title="Settings">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <button id="settings-btn" class="btn-icon btn-icon-44" aria-label="Settings">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                                         <circle cx="12" cy="12" r="3"></circle>
                                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
                                     </svg>
                                 </button>
-                                <button id="logout-btn" class="btn-icon" title="Sign Out">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <button id="logout-btn" class="btn-icon btn-icon-44" aria-label="Sign out">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                                         <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                                         <polyline points="16 17 21 12 16 7"></polyline>
                                         <line x1="21" y1="12" x2="9" y2="12"></line>
@@ -144,14 +144,14 @@
             <!-- Sidebar Overlay (Mobile) -->
             <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
-            <!-- Menu Toggle (Mobile) -->
-            <button id="panel-toggle" class="menu-toggle">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <!-- Menu Toggle (Mobile only) -->
+            <button id="panel-toggle" class="panel-toggle" aria-label="Toggle menu">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <line x1="3" y1="12" x2="21" y2="12"></line>
                     <line x1="3" y1="6" x2="21" y2="6"></line>
                     <line x1="3" y1="18" x2="21" y2="18"></line>
                 </svg>
-                Menu
+                <span class="visually-hidden">Menu</span>
             </button>
 
             <!-- Main Area -->
@@ -253,13 +253,13 @@
         </div>
 
         <!-- Settings Modal -->
-        <div id="settings-modal" class="modal hidden">
+        <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <div class="modal-backdrop"></div>
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2 class="modal-title">Settings</h2>
-                    <button id="close-settings" class="btn-icon" title="Close">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <h2 id="settings-title" class="modal-title">Settings</h2>
+                    <button id="close-settings" class="btn-icon" aria-label="Close settings">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                             <line x1="18" y1="6" x2="6" y2="18"></line>
                             <line x1="6" y1="6" x2="18" y2="18"></line>
                         </svg>
@@ -269,34 +269,41 @@
                     <div class="settings-section">
                         <div class="settings-row">
                             <div class="settings-label">
-                                <span class="settings-title">System Prompt</span>
-                                <span class="settings-desc">Customize how the AI responds</span>
+                                <span id="system-prompt-label" class="settings-title">System Prompt</span>
+                                <span id="system-prompt-desc" class="settings-desc">Customize how the AI responds</span>
                             </div>
                             <label class="toggle">
-                                <input type="checkbox" id="system-prompt-enabled" checked>
-                                <span class="toggle-slider"></span>
+                                <input type="checkbox"
+                                       id="system-prompt-enabled"
+                                       role="switch"
+                                       aria-labelledby="system-prompt-label"
+                                       aria-describedby="system-prompt-desc"
+                                       checked>
+                                <span class="toggle-slider" aria-hidden="true"></span>
                             </label>
                         </div>
                     </div>
 
-                    <div class="settings-section">
-                        <label class="section-label">Preset Templates</label>
-                        <select id="preset-select" class="model-select">
-                            <option value="none">Default (none)</option>
+                    <div class="settings-section" id="prompt-controls">
+                        <label for="preset-select" class="visually-hidden">Preset template</label>
+                        <select id="preset-select" class="preset-select" aria-label="Choose a preset template">
+                            <option value="none">Choose a preset...</option>
                         </select>
-                    </div>
-
-                    <div class="settings-section">
-                        <label class="section-label">Custom Prompt</label>
-                        <textarea id="system-prompt-input" class="prompt-textarea" placeholder="Enter a custom system prompt to control model behavior..." maxlength="4000"></textarea>
-                        <div class="char-counter">
-                            <span id="prompt-char-count">0</span> / 4000
+                        <label for="system-prompt-input" class="visually-hidden">Custom system prompt</label>
+                        <textarea id="system-prompt-input"
+                                  class="prompt-textarea"
+                                  placeholder="Or write your own prompt..."
+                                  maxlength="4000"
+                                  aria-label="Custom system prompt"
+                                  aria-describedby="char-counter"></textarea>
+                        <div id="char-counter" class="char-counter" aria-live="polite" aria-atomic="true">
+                            <span id="prompt-char-count">0</span> of 4000 characters
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button id="cancel-settings" class="btn btn-small btn-secondary">Cancel</button>
-                    <button id="save-settings" class="btn btn-small">Save</button>
+                    <button id="cancel-settings" class="btn btn-secondary">Cancel</button>
+                    <button id="save-settings" class="btn">Save</button>
                 </div>
             </div>
         </div>
