@@ -164,10 +164,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_WINS_GROUP }}",
-        "text": "={{ `\\uD83C\\uDFC6 *BID WON\\!*\\n\\n*Reference:* ${$('Get Full Bid History').first().json.reference_number}\\n*Client:* ${$('Get Full Bid History').first().json.client_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Contract Value:* ${$('Get Full Bid History').first().json.actual_contract_value ? '$' + Number($('Get Full Bid History').first().json.actual_contract_value).toLocaleString() : 'TBD'}\\n\\n*Key Success Factors:*\\n${$('Parse Lessons').first().json.lessons.key_factors.slice(0, 3).map(f => '\\u2022 ' + f.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\nCongratulations to the team\\! \\uD83C\\uDF89` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `🏆 BID WON!\n\n🔖 Reference: ${$('Get Full Bid History').first().json.reference_number}\n🏢 Client: ${$('Get Full Bid History').first().json.client_name}\n💰 Contract Value: ${$('Get Full Bid History').first().json.actual_contract_value ? '$' + Number($('Get Full Bid History').first().json.actual_contract_value).toLocaleString() : 'TBD'}\n\n✨ KEY SUCCESS FACTORS:\n${$('Parse Lessons').first().json.lessons.key_factors.slice(0, 3).map(f => '• ' + f).join('\\n')}\n\n🎉 Congratulations to the team!` }}",
+        "additionalFields": {}
       },
       "id": "telegram-win",
       "name": "Announce Win",
@@ -185,10 +183,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
-        "text": "={{ `\\uD83D\\uDCDA *Lessons Learned Recorded*\\n\\n*Reference:* ${$('Get Full Bid History').first().json.reference_number}\\n*Outcome:* ${$('Parse Lessons').first().json.outcome}\\n*Client:* ${$('Get Full Bid History').first().json.client_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n\\n*Key Factors:*\\n${$('Parse Lessons').first().json.lessons.key_factors.slice(0, 3).map(f => '\\u2022 ' + f.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n*Areas for Improvement:*\\n${$('Parse Lessons').first().json.lessons.improvement_suggestions?.substring(0, 200).replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&') || 'See full analysis'}` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `📚 LESSONS LEARNED RECORDED\n\n🔖 Reference: ${$('Get Full Bid History').first().json.reference_number}\n📊 Outcome: ${$('Parse Lessons').first().json.outcome}\n🏢 Client: ${$('Get Full Bid History').first().json.client_name}\n\n🔑 KEY FACTORS:\n${$('Parse Lessons').first().json.lessons.key_factors.slice(0, 3).map(f => '• ' + f).join('\\n')}\n\n💡 AREAS FOR IMPROVEMENT:\n${$('Parse Lessons').first().json.lessons.improvement_suggestions?.substring(0, 200) || 'See full analysis'}` }}",
+        "additionalFields": {}
       },
       "id": "telegram-lessons",
       "name": "Share Lessons",

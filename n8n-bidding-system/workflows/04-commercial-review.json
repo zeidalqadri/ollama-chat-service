@@ -124,34 +124,32 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $('Get Commercial Reviewer').first().json.telegram_chat_id }}",
-        "text": "={{ `\\uD83D\\uDCB0 *Commercial Review Required*\\n\\n*Bid:* ${$('Get Bid with Tech Review').first().json.reference_number}\\n*Title:* ${$('Get Bid with Tech Review').first().json.title.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Client:* ${$('Get Bid with Tech Review').first().json.client_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n\\n*Financial Details:*\\n\\u2022 Estimated Value: ${$('Get Bid with Tech Review').first().json.estimated_value ? '$' + Number($('Get Bid with Tech Review').first().json.estimated_value).toLocaleString() : 'Not specified'}\\n\\u2022 Currency: ${$('Get Bid with Tech Review').first().json.currency || 'USD'}\\n\\u2022 Margin: ${$('Get Bid with Tech Review').first().json.margin_percentage ? $('Get Bid with Tech Review').first().json.margin_percentage + '%' : 'Not specified'}\\n\\n*Technical Review:* \\u2705 Approved by ${$('Get Bid with Tech Review').first().json.tech_reviewer_name?.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&') || 'Unknown'}\\n\\n*AI Scores:*\\n\\u2022 Win Probability: ${$('Get Bid with Tech Review').first().json.win_probability_score || 'N/A'}%\\n\\u2022 Risk Score: ${$('Get Bid with Tech Review').first().json.risk_score || 'N/A'}%\\n\\n*SLA:* 48 hours\\n\\nPlease review pricing, terms, and margins\\.` }}",
+        "text": "={{ `💰 COMMERCIAL REVIEW REQUIRED\n\n🔖 Bid: ${$('Get Bid with Tech Review').first().json.reference_number}\n📝 Title: ${$('Get Bid with Tech Review').first().json.title}\n🏢 Client: ${$('Get Bid with Tech Review').first().json.client_name}\n\n💵 FINANCIAL DETAILS:\n• Estimated Value: ${$('Get Bid with Tech Review').first().json.estimated_value ? '$' + Number($('Get Bid with Tech Review').first().json.estimated_value).toLocaleString() : 'Not specified'}\n• Currency: ${$('Get Bid with Tech Review').first().json.currency || 'USD'}\n• Margin: ${$('Get Bid with Tech Review').first().json.margin_percentage ? $('Get Bid with Tech Review').first().json.margin_percentage + '%' : 'Not specified'}\n\n✅ Technical Review: Approved by ${$('Get Bid with Tech Review').first().json.tech_reviewer_name || 'Unknown'}\n\n📊 AI SCORES:\n• Win Probability: ${$('Get Bid with Tech Review').first().json.win_probability_score || 'N/A'}%\n• Risk Score: ${$('Get Bid with Tech Review').first().json.risk_score || 'N/A'}%\n\n⏰ SLA: 48 hours\n\nPlease review pricing, terms, and margins.` }}",
         "replyMarkup": {
           "inline_keyboard": [
             [
               {
-                "text": "Approve",
+                "text": "✅ Approve",
                 "callback_data": "={{ `approve_${$('Get Bid with Tech Review').first().json.id}_comm` }}"
               },
               {
-                "text": "Revision",
+                "text": "🔄 Revision",
                 "callback_data": "={{ `revision_${$('Get Bid with Tech Review').first().json.id}_comm` }}"
               },
               {
-                "text": "Reject",
+                "text": "❌ Reject",
                 "callback_data": "={{ `reject_${$('Get Bid with Tech Review').first().json.id}_comm` }}"
               }
             ],
             [
               {
-                "text": "View Details",
+                "text": "🔗 View Details",
                 "url": "={{ $env.BID_PORTAL_URL || 'https://bids.example.com' }}/bid/{{ $('Get Bid with Tech Review').first().json.id }}"
               }
             ]
           ]
         },
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "additionalFields": {}
       },
       "id": "telegram-send-review",
       "name": "Send Review Request",
@@ -209,10 +207,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_ESCALATION_GROUP }}",
-        "text": "={{ `\\u26A0\\uFE0F *No Commercial Reviewer Available*\\n\\n*Bid:* ${$('Get Bid with Tech Review').first().json.reference_number}\\n\\nNo active commercial reviewers found\\. Please assign manually\\.` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `⚠️ NO COMMERCIAL REVIEWER AVAILABLE\n\n🔖 Bid: ${$('Get Bid with Tech Review').first().json.reference_number}\n\nNo active commercial reviewers found. Please assign manually.` }}",
+        "additionalFields": {}
       },
       "id": "telegram-no-reviewer",
       "name": "Alert: No Reviewer",

@@ -152,36 +152,34 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $('Get Management Approver').first().json.telegram_chat_id }}",
-        "text": "={{ `\\uD83C\\uDFC6 *Executive Approval Required*\\n\\n*Bid:* ${$('Parse Assessment').first().json.bid.reference_number}\\n*Title:* ${$('Parse Assessment').first().json.bid.title.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Client:* ${$('Parse Assessment').first().json.bid.client_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Value:* ${$('Parse Assessment').first().json.bid.estimated_value ? '$' + Number($('Parse Assessment').first().json.bid.estimated_value).toLocaleString() : 'Not specified'}\\n\\n*Review Chain:*\\n\\u2705 Technical: Approved by ${$('Parse Assessment').first().json.bid.tech_reviewer_name?.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&') || 'Unknown'}\\n\\u2705 Commercial: Approved by ${$('Parse Assessment').first().json.bid.comm_reviewer_name?.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&') || 'Unknown'}\\n\\n*AI Assessment:*\\n\\u2022 Win Probability: ${$('Parse Assessment').first().json.assessment.final_win_probability}%\\n\\u2022 Recommendation: ${$('Parse Assessment').first().json.assessment.recommendation}\\n\\n*Success Factors:*\\n${$('Parse Assessment').first().json.assessment.success_factors.map(f => '\\u2022 ' + f.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n*Key Risks:*\\n${$('Parse Assessment').first().json.assessment.key_risks.map(r => '\\u2022 ' + r.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n*SLA:* 24 hours\\n\\nThis is the final approval before client submission\\.` }}",
+        "text": "={{ `🏆 EXECUTIVE APPROVAL REQUIRED\n\n🔖 Bid: ${$('Parse Assessment').first().json.bid.reference_number}\n📝 Title: ${$('Parse Assessment').first().json.bid.title}\n🏢 Client: ${$('Parse Assessment').first().json.bid.client_name}\n💰 Value: ${$('Parse Assessment').first().json.bid.estimated_value ? '$' + Number($('Parse Assessment').first().json.bid.estimated_value).toLocaleString() : 'Not specified'}\n\n📋 REVIEW CHAIN:\n✅ Technical: Approved by ${$('Parse Assessment').first().json.bid.tech_reviewer_name || 'Unknown'}\n✅ Commercial: Approved by ${$('Parse Assessment').first().json.bid.comm_reviewer_name || 'Unknown'}\n\n🤖 AI ASSESSMENT:\n• Win Probability: ${$('Parse Assessment').first().json.assessment.final_win_probability}%\n• Recommendation: ${$('Parse Assessment').first().json.assessment.recommendation}\n\n✨ SUCCESS FACTORS:\n${$('Parse Assessment').first().json.assessment.success_factors.map(f => '• ' + f).join('\\n')}\n\n⚠️ KEY RISKS:\n${$('Parse Assessment').first().json.assessment.key_risks.map(r => '• ' + r).join('\\n')}\n\n⏰ SLA: 24 hours\n\nThis is the final approval before client submission.` }}",
         "replyMarkup": {
           "inline_keyboard": [
             [
               {
-                "text": "Approve to Submit",
+                "text": "✅ Approve to Submit",
                 "callback_data": "={{ `approve_${$('Parse Assessment').first().json.bid.id}_mgmt` }}"
               }
             ],
             [
               {
-                "text": "Request Changes",
+                "text": "🔄 Request Changes",
                 "callback_data": "={{ `revision_${$('Parse Assessment').first().json.bid.id}_mgmt` }}"
               },
               {
-                "text": "Reject",
+                "text": "❌ Reject",
                 "callback_data": "={{ `reject_${$('Parse Assessment').first().json.bid.id}_mgmt` }}"
               }
             ],
             [
               {
-                "text": "View Full Details",
+                "text": "🔗 View Full Details",
                 "url": "={{ $env.BID_PORTAL_URL || 'https://bids.example.com' }}/bid/{{ $('Parse Assessment').first().json.bid.id }}"
               }
             ]
           ]
         },
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "additionalFields": {}
       },
       "id": "telegram-send-approval",
       "name": "Send Approval Request",
@@ -219,10 +217,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_ESCALATION_GROUP }}",
-        "text": "={{ `\\u26A0\\uFE0F *No Management Approver Available*\\n\\n*Bid:* ${$('Parse Assessment').first().json.bid.reference_number}\\n\\nNo active management approvers found\\. Please assign manually\\.` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `⚠️ NO MANAGEMENT APPROVER AVAILABLE\n\n🔖 Bid: ${$('Parse Assessment').first().json.bid.reference_number}\n\nNo active management approvers found. Please assign manually.` }}",
+        "additionalFields": {}
       },
       "id": "telegram-no-approver",
       "name": "Alert: No Approver",
