@@ -38,21 +38,25 @@ None currently
     - Wins: `-1003786299679`
   - Environment variables added to `/opt/alumist/config/.env`
 
+## Completed Tasks (Session 7 continued)
+
+- [x] **Connect SmartGEP Scraper** ✅
+  - Added "Send to Harmony Ingest" node to SmartGEP Scraper - PETRONAS workflow
+  - Runs in parallel with Supabase upsert
+  - Triggers on every scrape completion
+
+- [x] **Add ePerolehan Source** ✅
+  - Added "Send to Harmony Ingest" node to Paraty: 03-Webhook-ScraperComplete
+  - ePerolehan already in valid sources list
+  - DD/MM/YYYY date parsing already supported
+  - Scraper at localhost:8083, triggers webhook on completion
+
 ## Pending Tasks
 
 ### Medium Priority
 - [ ] **Set up Scheduled Reports**
   - Configure timezone in workflow settings
   - Verify 08-scheduled-reports.json is working
-
-### Low Priority
-- [ ] **Connect SmartGEP Scraper**
-  - Configure scraper to POST to `/webhook/harmony/ingest`
-  - Test with real tender data
-
-- [ ] **Add ePerolehan Source**
-  - Update Validate node to include ePerolehan field mappings
-  - Test date parsing for Malaysian date formats
 
 ## Quick Commands
 
