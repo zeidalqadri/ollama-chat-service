@@ -5,7 +5,7 @@
       "parameters": {
         "path": "bid/submit",
         "httpMethod": "POST",
-        "responseMode": "lastNode",
+        "responseMode": "responseNode",
         "options": {}
       },
       "id": "webhook-intake",

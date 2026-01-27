@@ -1,24 +1,31 @@
 # TenderBiru n8n Bidding System Tasks
 
-**Last Updated**: 2026-01-27 16:35 MYT
+**Last Updated**: 2026-01-27 17:15 MYT (Session 7)
 
 ## Completed Tasks
 
 - [x] Deploy Harmony Pipeline SQL schema
 - [x] Import Harmony Ingest workflow
 - [x] Import Harmony Process workflow
-- [x] Fix webhook silent failure issue (remove responseMode)
+- [x] Fix webhook silent failure issue (remove responseMode from Harmony workflows)
 - [x] Fix N8N_WEBHOOK_BASE_URL environment variable
 - [x] Grant database permissions to alumist user
 - [x] Test end-to-end pipeline: Scraper → Ingest → Process → Bid
 - [x] Commit n8n-bidding-system files to repo
+- [x] **Fix AI Completeness Analysis workflow** (Session 7)
+  - Removed `responseMode: responseNode` from webhook
+  - Tested successfully - bid analyzed in 1m28s
+  - AI scoring working: completeness, win_probability, risk_score
+- [x] **Fix responseMode across all TenderBiru workflows** (Session 7)
+  - Workflows with Respond nodes: use `responseMode: responseNode`
+  - Workflows without Respond nodes: no responseMode (use default)
+  - Bid Submission now correctly returns bid_id to Harmony Process
+- [x] **Verify postgres-bidding credential** (Session 7)
+  - Working - successfully creates bids and updates scores
 
 ## In Progress
 
-- [ ] **Verify postgres-bidding credential in n8n UI**
-  - Status: Working but should be explicitly verified
-  - Action: Check Settings > Credentials in n8n UI
-  - Verify it points to: `tenderbiru` database, `alumist` user
+None currently - ready for Telegram setup
 
 ## Pending Tasks
 
@@ -29,23 +36,16 @@
   - Create Telegram groups (Intake, Escalation, Wins)
   - Get chat IDs for each group
   - Add `Bidding Bot` credential in n8n
-
-- [ ] **Activate Review Workflows**
-  - After Telegram setup:
-    - 03-technical-review.json
-    - 04-commercial-review.json
-    - 05-management-approval.json
-    - 06-telegram-callback-handler.json
+  - Add environment variables to `/opt/alumist/config/.env`:
+    - `TENDERBIRU_TELEGRAM_BOT_TOKEN`
+    - `TENDERBIRU_TELEGRAM_INTAKE_GROUP`
+    - `TENDERBIRU_TELEGRAM_ESCALATION_GROUP`
+    - `TENDERBIRU_TELEGRAM_WINS_GROUP`
 
 ### Medium Priority
-- [ ] **Test AI Analysis Workflow**
-  - Verify Ollama is running: `curl http://45.159.230.42:11434/api/tags`
-  - Check models available: `qwen3-coder:30b`, `deepseek-ocr:latest`
-  - Activate 02-ai-completeness-analysis.json
-
 - [ ] **Set up Scheduled Reports**
   - Configure timezone in workflow settings
-  - Activate 08-scheduled-reports.json
+  - Verify 08-scheduled-reports.json is working
 
 ### Low Priority
 - [ ] **Connect SmartGEP Scraper**
@@ -67,13 +67,18 @@ curl -X POST "http://45.159.230.42:5678/webhook/harmony/ingest" \
   -H "Content-Type: application/json" \
   -d '{"source":"smartgep","tenders":[{"tender_id":"T001","title":"Test"}]}'
 
+# Test AI Analysis
+curl -X POST "http://45.159.230.42:5678/webhook/bid/analyze" \
+  -H "Content-Type: application/json" \
+  -d '{"bid_id": "<UUID>"}'
+
 # Check n8n executions
 PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -h localhost -U alumist -d alumist_n8n \
   -c "SELECT id, \"workflowId\", status FROM n8n.execution_entity ORDER BY \"startedAt\" DESC LIMIT 5;"
 
-# Check bids created
+# Check bids with AI scores
 PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -h localhost -U alumist -d tenderbiru \
-  -c "SELECT title, status, priority FROM bids ORDER BY created_at DESC LIMIT 5;"
+  -c "SELECT title, status, completeness_score, win_probability_score FROM bids ORDER BY created_at DESC LIMIT 5;"
 
 # Restart n8n with proper env
 cd /root && source /opt/alumist/config/.env && pkill -f 'n8n start' && nohup n8n start &
@@ -81,6 +86,19 @@ cd /root && source /opt/alumist/config/.env && pkill -f 'n8n start' && nohup n8n
 
 ## Notes
 
-- n8n API Key in env file differs from what was in process - use the one from `/opt/alumist/config/.env`
-- When creating new workflows, NEVER use `responseMode: responseNode` unless you're certain the Respond node will be reached
-- Workflow updates via API require only: name, nodes, connections, settings
+### responseMode Rules (CRITICAL)
+- **Workflows WITH Respond to Webhook nodes**: Use `responseMode: "responseNode"`
+  - 01-bid-submission-intake.json
+  - 07-outcome-tracking.json
+- **Workflows WITHOUT Respond nodes**: Remove `responseMode` entirely
+  - 02-ai-completeness-analysis.json
+  - 03-technical-review.json
+  - 04-commercial-review.json
+  - 05-management-approval.json
+  - 09-harmony-ingest.json
+  - 10-harmony-process.json
+- Using wrong mode causes: "Unused Respond to Webhook node" or "No Respond to Webhook node found"
+
+### API Key Note
+- n8n process API key may differ from env file
+- Check running process: `cat /proc/$(pgrep -f "n8n start" | head -1)/environ | tr "\0" "\n" | grep N8N_API_KEY`

@@ -5,7 +5,6 @@
       "parameters": {
         "path": "bid/analyze",
         "httpMethod": "POST",
-        "responseMode": "onReceived",
         "options": {}
       },
       "id": "webhook-analyze",

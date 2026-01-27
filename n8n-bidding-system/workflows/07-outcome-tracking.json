@@ -5,7 +5,7 @@
       "parameters": {
         "path": "bid/outcome",
         "httpMethod": "POST",
-        "responseMode": "lastNode",
+        "responseMode": "responseNode",
         "options": {}
       },
       "id": "webhook-outcome",
