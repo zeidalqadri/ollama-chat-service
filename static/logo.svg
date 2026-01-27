@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#18181b"/>
+      <stop offset="100%" style="stop-color:#121214"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#b8b0e0"/>
+      <stop offset="100%" style="stop-color:#a8a0d0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="224" fill="url(#bgGrad)"/>
+
+  <!-- Subtle grid pattern for terminal feel -->
+  <g opacity="0.03" stroke="#a8a0d0" stroke-width="1">
+    <line x1="256" y1="0" x2="256" y2="1024"/>
+    <line x1="512" y1="0" x2="512" y2="1024"/>
+    <line x1="768" y1="0" x2="768" y2="1024"/>
+    <line x1="0" y1="256" x2="1024" y2="256"/>
+    <line x1="0" y1="512" x2="1024" y2="512"/>
+    <line x1="0" y1="768" x2="1024" y2="768"/>
+  </g>
+
+  <!-- The B letterform - bold, geometric -->
+  <g fill="url(#accentGrad)">
+    <!-- Main B shape -->
+    <path d="
+      M 320 280
+      L 320 744
+      L 520 744
+      Q 680 744 680 624
+      Q 680 540 580 512
+      Q 660 484 660 400
+      Q 660 280 520 280
+      Z
+      M 400 360
+      L 500 360
+      Q 580 360 580 410
+      Q 580 460 500 460
+      L 400 460
+      Z
+      M 400 540
+      L 520 540
+      Q 600 540 600 612
+      Q 600 664 520 664
+      L 400 664
+      Z
+    "/>
+  </g>
+
+  <!-- The iconic umlaut dots - the soul of BÖRAK -->
+  <g fill="url(#accentGrad)">
+    <circle cx="420" cy="180" r="36"/>
+    <circle cx="540" cy="180" r="36"/>
+  </g>
+
+  <!-- Terminal cursor - blinking essence -->
+  <rect x="720" y="620" width="24" height="100" rx="4" fill="url(#accentGrad)" opacity="0.8"/>
+</svg>
