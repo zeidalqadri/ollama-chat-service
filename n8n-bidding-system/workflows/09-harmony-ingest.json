@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body;\nconst validSources = ['smartgep', 'eperolehan', 'mytender', 'manual'];\n\nif (!body.source || !validSources.includes(body.source.toLowerCase())) {\n  throw new Error('Invalid source');\n}\nif (!body.tenders || !Array.isArray(body.tenders) || body.tenders.length === 0) {\n  throw new Error('Invalid tenders array');\n}\n\nreturn body.tenders.map(t => ({\n  json: {\n    source: body.source.toLowerCase(),\n    job_id: body.job_id || 'manual-' + Date.now(),\n    source_tender_id: t.tender_id || t.reference || t.id,\n    source_url: t.source_url || t.url || null,\n    raw_data: JSON.stringify(t),\n    scraped_at: new Date().toISOString()\n  }\n}));"
+        "jsCode": "const body = $input.first().json.body;\nconst validSources = ['smartgep', 'eperolehan', 'mytender', 'manual'];\n\nif (!body.source || !validSources.includes(body.source.toLowerCase())) {\n  throw new Error('Invalid source');\n}\n\n// Check if tenders array is valid\nconst hasTenders = body.tenders && Array.isArray(body.tenders) && body.tenders.length > 0;\nconst hasRawHtml = body.raw_html && body.raw_html.length > 0;\n\nif (!hasTenders && !hasRawHtml) {\n  throw new Error('No tenders and no raw_html for recovery');\n}\n\n// If we have tenders, process them normally\nif (hasTenders) {\n  return body.tenders.map(t => ({\n    json: {\n      source: body.source.toLowerCase(),\n      job_id: body.job_id || 'manual-' + Date.now(),\n      source_tender_id: t.tender_id || t.reference || t.id,\n      source_url: t.source_url || t.url || null,\n      raw_data: JSON.stringify(t),\n      scraped_at: new Date().toISOString(),\n      needs_troubleshoot: false\n    }\n  }));\n}\n\n// No tenders but have raw_html - needs troubleshooting\nreturn [{\n  json: {\n    source: body.source.toLowerCase(),\n    job_id: body.job_id || 'manual-' + Date.now(),\n    raw_html: body.raw_html,\n    source_url: body.source_url || null,\n    scraped_at: new Date().toISOString(),\n    needs_troubleshoot: true,\n    error: 'Empty tenders array - attempting extraction from raw HTML'\n  }\n}];"
       },
       "id": "validate",
       "name": "Validate",
@@ -27,37 +27,156 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-troubleshoot",
+              "leftValue": "={{ $json.needs_troubleshoot }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-needs-troubleshoot",
+      "name": "Needs Troubleshoot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BORAK_URL || 'http://localhost:8012' }}/api/troubleshoot",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  stage: 'extract',\n  error_data: {\n    error: $json.error,\n    url: $json.source_url,\n    partial_data: {},\n    missing_fields: ['tender_id', 'title', 'organization', 'closing_date']\n  },\n  context: {\n    raw_html: $json.raw_html\n  }\n}) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "troubleshoot-extract",
+      "name": "Troubleshoot Extract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process troubleshoot response\nconst original = $('Validate').first().json;\nconst troubleshootResult = $json;\n\n// Check if recovery was successful\nif (troubleshootResult.recovered && troubleshootResult.data) {\n  const extracted = troubleshootResult.data;\n  return [{\n    json: {\n      source: original.source,\n      job_id: original.job_id,\n      source_tender_id: extracted.tender_id || extracted.id || 'recovered-' + Date.now(),\n      source_url: original.source_url,\n      raw_data: JSON.stringify({\n        ...extracted,\n        _recovered: true,\n        _recovery_confidence: troubleshootResult.confidence,\n        _diagnosis: troubleshootResult.diagnosis\n      }),\n      scraped_at: original.scraped_at,\n      recovered: true\n    }\n  }];\n}\n\n// Recovery failed - log for manual review\nreturn [{\n  json: {\n    source: original.source,\n    job_id: original.job_id,\n    source_tender_id: 'failed-extraction-' + Date.now(),\n    source_url: original.source_url,\n    raw_data: JSON.stringify({\n      _extraction_failed: true,\n      _diagnosis: troubleshootResult.diagnosis || 'Unknown failure',\n      _raw_html_length: (original.raw_html || '').length,\n      _needs_manual_review: true\n    }),\n    scraped_at: original.scraped_at,\n    status: 'failed_extraction'\n  }\n}];"
+      },
+      "id": "process-troubleshoot",
+      "name": "Process Troubleshoot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO raw_tenders (source, source_tender_id, source_url, job_id, raw_data, scraped_at, status) VALUES ('{{ $json.source }}', '{{ $json.source_tender_id }}', {{ $json.source_url ? \"'\" + $json.source_url + \"'\" : 'NULL' }}, '{{ $json.job_id }}', '{{ $json.raw_data }}'::jsonb, '{{ $json.scraped_at }}'::timestamptz, 'pending') ON CONFLICT (source, source_tender_id) DO UPDATE SET raw_data = EXCLUDED.raw_data, scraped_at = EXCLUDED.scraped_at, updated_at = NOW() RETURNING id::text, source_tender_id, (xmax = 0) as is_new",
+        "query": "INSERT INTO raw_tenders (source, source_tender_id, source_url, job_id, raw_data, scraped_at, status) VALUES ('{{ $json.source }}', '{{ $json.source_tender_id }}', {{ $json.source_url ? \"'\" + $json.source_url + \"'\" : 'NULL' }}, '{{ $json.job_id }}', '{{ $json.raw_data }}'::jsonb, '{{ $json.scraped_at }}'::timestamptz, '{{ $json.status || \"pending\" }}') ON CONFLICT (source, source_tender_id) DO UPDATE SET raw_data = EXCLUDED.raw_data, scraped_at = EXCLUDED.scraped_at, status = EXCLUDED.status, updated_at = NOW() RETURNING id::text, source_tender_id, (xmax = 0) as is_new",
         "options": {}
       },
       "id": "store",
       "name": "Store",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [680, 300],
+      "position": [1340, 300],
       "credentials": {"postgres": {"id": "postgres-bidding", "name": "Postgres Bidding DB"}}
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const items = $input.all();\nreturn [{ json: { success: true, processed: items.length, new_tenders: items.filter(i => i.json.is_new).length, ids: items.map(i => ({ id: i.json.id, tender: i.json.source_tender_id, is_new: i.json.is_new })) } }];"
+        "jsCode": "const items = $input.all();\nconst recovered = items.filter(i => i.json.recovered);\nconst failed = items.filter(i => i.json.status === 'failed_extraction');\n\nreturn [{ json: {\n  success: true,\n  processed: items.length,\n  new_tenders: items.filter(i => i.json.is_new).length,\n  recovered_count: recovered.length,\n  failed_count: failed.length,\n  ids: items.map(i => ({\n    id: i.json.id,\n    tender: i.json.source_tender_id,\n    is_new: i.json.is_new,\n    recovered: i.json.recovered || false\n  }))\n} }];"
       },
       "id": "aggregate",
       "name": "Aggregate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-failed",
+              "leftValue": "={{ $json.failed_count > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-has-failures",
+      "name": "Has Failures?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
+        "text": "={{ `\\u26A0\\uFE0F *Harmony Ingest Warning*\\n\\n*Job:* ${$json.job_id || 'unknown'}\\n*Processed:* ${$json.processed}\\n*Recovered:* ${$json.recovered_count}\\n*Failed:* ${$json.failed_count}\\n\\n_Some extractions failed and require manual review\\._` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-alert-failures",
+      "name": "Alert: Extraction Failures",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2000, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "tenderbirubot",
+          "name": "tenderbirubot"
+        }
+      },
+      "continueOnFail": true
     }
   ],
   "connections": {
     "Webhook": {"main": [[{"node": "Validate", "type": "main", "index": 0}]]},
-    "Validate": {"main": [[{"node": "Store", "type": "main", "index": 0}]]},
-    "Store": {"main": [[{"node": "Aggregate", "type": "main", "index": 0}]]}
+    "Validate": {"main": [[{"node": "Needs Troubleshoot?", "type": "main", "index": 0}]]},
+    "Needs Troubleshoot?": {
+      "main": [
+        [{"node": "Troubleshoot Extract", "type": "main", "index": 0}],
+        [{"node": "Store", "type": "main", "index": 0}]
+      ]
+    },
+    "Troubleshoot Extract": {"main": [[{"node": "Process Troubleshoot", "type": "main", "index": 0}]]},
+    "Process Troubleshoot": {"main": [[{"node": "Store", "type": "main", "index": 0}]]},
+    "Store": {"main": [[{"node": "Aggregate", "type": "main", "index": 0}]]},
+    "Aggregate": {"main": [[{"node": "Has Failures?", "type": "main", "index": 0}]]},
+    "Has Failures?": {
+      "main": [
+        [{"node": "Alert: Extraction Failures", "type": "main", "index": 0}],
+        []
+      ]
+    }
   },
   "settings": {"executionOrder": "v1", "saveManualExecutions": true},
   "staticData": null,
-  "tags": [{"name": "harmony-pipeline"}],
+  "tags": [{"name": "harmony-pipeline"}, {"name": "troubleshoot-enabled"}],
   "triggerCount": 1,
-  "versionId": "1.2.0"
+  "versionId": "2.0.0"
 }

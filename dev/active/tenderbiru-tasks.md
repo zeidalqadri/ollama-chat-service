@@ -1,9 +1,10 @@
 # TenderBiru n8n Bidding System Tasks
 
-**Last Updated**: 2026-01-27 17:15 MYT (Session 7)
+**Last Updated**: 2026-01-28 00:45 MYT (Session 8)
 
 ## Completed Tasks
 
+### Session 7
 - [x] Deploy Harmony Pipeline SQL schema
 - [x] Import Harmony Ingest workflow
 - [x] Import Harmony Process workflow
@@ -12,51 +13,77 @@
 - [x] Grant database permissions to alumist user
 - [x] Test end-to-end pipeline: Scraper → Ingest → Process → Bid
 - [x] Commit n8n-bidding-system files to repo
-- [x] **Fix AI Completeness Analysis workflow** (Session 7)
-  - Removed `responseMode: responseNode` from webhook
-  - Tested successfully - bid analyzed in 1m28s
-  - AI scoring working: completeness, win_probability, risk_score
-- [x] **Fix responseMode across all TenderBiru workflows** (Session 7)
-  - Workflows with Respond nodes: use `responseMode: responseNode`
-  - Workflows without Respond nodes: no responseMode (use default)
-  - Bid Submission now correctly returns bid_id to Harmony Process
-- [x] **Verify postgres-bidding credential** (Session 7)
-  - Working - successfully creates bids and updates scores
+- [x] Fix AI Completeness Analysis workflow
+- [x] Fix responseMode across all TenderBiru workflows
+- [x] Verify postgres-bidding credential
+- [x] Set up Telegram Bot credentials (@TenderBiruBot)
+- [x] Connect SmartGEP Scraper to Harmony Pipeline
+- [x] Add ePerolehan Source to Harmony Pipeline
+
+### Session 8
+- [x] **Implement Automated Troubleshooting Pipeline** ✅
+  - Added `/api/troubleshoot` endpoint to BORAK (main.py)
+  - 5 troubleshooting stages: scrape, extract, analyze, document, submit
+  - Model routing: qwen2.5-coder:7b, gemma2:9b, deepseek-ocr
+  - Prompt templates for each failure type
+
+- [x] **Update Workflow 09 - Harmony Ingest to v2.0.0** ✅
+  - Added extraction troubleshoot branch
+  - Calls `/api/troubleshoot` when tenders empty but raw_html available
+  - Merges recovered data or flags for manual review
+  - Telegram alerts for extraction failures
+  - Updated in `n8n.workflow_entity` (id: `8GdOVgHbGoPaT6mM`)
+
+- [x] **Update Workflow 02 - AI Completeness Analysis to v2.0.0** ✅
+  - Added retry logic with 240s timeout
+  - Fallback to troubleshoot endpoint if retry fails
+  - Default scores (50/50/50) with NEEDS_MANUAL_REVIEW status
+  - Separate Telegram alerts for manual review vs needs-info
+  - Updated in `n8n.workflow_entity` (id: `l2RiR02qed1XaTzX`)
+
+- [x] **Fix analyze troubleshooter empty data issue** ✅
+  - Fixed extraction logic in `run_troubleshoot()` for analyze stage
+  - Now correctly returns `{completeness_score, win_probability, risk_score}`
+
+- [x] **Deploy and test on VPS** ✅
+  - BORAK service restarted with new endpoint
+  - Workflows updated directly in n8n PostgreSQL (`n8n` schema)
+  - Verified scrape troubleshooter: extracts tender fields from HTML
+  - Verified analyze troubleshooter: returns fallback scores
 
 ## In Progress
 
 None currently
 
-## Completed Tasks (Session 7 continued)
-
-- [x] **Set up Telegram Bot credentials** ✅
-  - Bot: @TenderBiruBot (8215108588)
-  - Credential: `tenderbirubot` in n8n database
-  - Groups configured:
-    - Intake: `-1003619116505`
-    - Escalation: `-1003729943661`
-    - Wins: `-1003786299679`
-  - Environment variables added to `/opt/alumist/config/.env`
-
-## Completed Tasks (Session 7 continued)
-
-- [x] **Connect SmartGEP Scraper** ✅
-  - Added "Send to Harmony Ingest" node to SmartGEP Scraper - PETRONAS workflow
-  - Runs in parallel with Supabase upsert
-  - Triggers on every scrape completion
-
-- [x] **Add ePerolehan Source** ✅
-  - Added "Send to Harmony Ingest" node to Paraty: 03-Webhook-ScraperComplete
-  - ePerolehan already in valid sources list
-  - DD/MM/YYYY date parsing already supported
-  - Scraper at localhost:8083, triggers webhook on completion
-
 ## Pending Tasks
+
+### High Priority
+- [ ] **Test end-to-end troubleshooting flow**
+  - Send request with empty tenders + raw_html to Harmony Ingest
+  - Verify troubleshooter extracts data
+  - Confirm recovered tender proceeds through pipeline
 
 ### Medium Priority
 - [ ] **Set up Scheduled Reports**
   - Configure timezone in workflow settings
   - Verify 08-scheduled-reports.json is working
+
+- [ ] **Test Document Troubleshooter**
+  - Test deepseek-ocr stage with failed OCR scenario
+  - Verify retry logic works
+
+- [ ] **Test Submit Troubleshooter**
+  - Test qwen2.5-coder:7b for portal error analysis
+  - Verify suggested corrections are useful
+
+### Low Priority
+- [ ] **Add BORAK_URL to n8n environment**
+  - Currently hardcoded as fallback `http://localhost:8012`
+  - Should be in `/opt/alumist/config/.env`
+
+- [ ] **Test Review Workflows (03, 04, 05)**
+  - Verify Telegram notification routing
+  - Test callback handling
 
 ## Quick Commands
 
@@ -64,43 +91,50 @@ None currently
 # SSH to VPS
 ssh -p 1511 root@45.159.230.42
 
-# Test Harmony Ingest
-curl -X POST "http://45.159.230.42:5678/webhook/harmony/ingest" \
+# Test Troubleshoot - Scrape
+curl -s -X POST http://45.159.230.42:8012/api/troubleshoot \
   -H "Content-Type: application/json" \
-  -d '{"source":"smartgep","tenders":[{"tender_id":"T001","title":"Test"}]}'
+  -d '{"stage":"scrape","error_data":{"url":"test","error":"Failed"},"context":{"raw_html":"<table><tr><td>ID:</td><td>TND-001</td></tr><tr><td>Title:</td><td>Road Works</td></tr></table>"}}'
 
-# Test AI Analysis
-curl -X POST "http://45.159.230.42:5678/webhook/bid/analyze" \
+# Test Troubleshoot - Analyze
+curl -s -X POST http://45.159.230.42:8012/api/troubleshoot \
   -H "Content-Type: application/json" \
-  -d '{"bid_id": "<UUID>"}'
+  -d '{"stage":"analyze","error_data":{"title":"Test","client":"Corp","deadline":"2026-03-01","doc_count":2},"context":{}}'
 
-# Check n8n executions
+# Check workflow versions
 PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -h localhost -U alumist -d alumist_n8n \
-  -c "SELECT id, \"workflowId\", status FROM n8n.execution_entity ORDER BY \"startedAt\" DESC LIMIT 5;"
+  -c "SELECT id, name, \"versionId\", json_array_length(nodes) as nodes FROM n8n.workflow_entity WHERE name LIKE '%Harmony Ingest%' OR name LIKE '%Completeness%';"
 
-# Check bids with AI scores
-PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -h localhost -U alumist -d tenderbiru \
-  -c "SELECT title, status, completeness_score, win_probability_score FROM bids ORDER BY created_at DESC LIMIT 5;"
+# Check BORAK logs
+tail -50 /var/log/borak.log
 
-# Restart n8n with proper env
-cd /root && source /opt/alumist/config/.env && pkill -f 'n8n start' && nohup n8n start &
+# Restart BORAK
+pkill -f 'uvicorn main:app.*8012' && cd /opt/ollama-ui && nohup /opt/ollama-ui/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8012 > /var/log/borak.log 2>&1 &
 ```
 
 ## Notes
 
-### responseMode Rules (CRITICAL)
-- **Workflows WITH Respond to Webhook nodes**: Use `responseMode: "responseNode"`
-  - 01-bid-submission-intake.json
-  - 07-outcome-tracking.json
-- **Workflows WITHOUT Respond nodes**: Remove `responseMode` entirely
-  - 02-ai-completeness-analysis.json
-  - 03-technical-review.json
-  - 04-commercial-review.json
-  - 05-management-approval.json
-  - 09-harmony-ingest.json
-  - 10-harmony-process.json
-- Using wrong mode causes: "Unused Respond to Webhook node" or "No Respond to Webhook node found"
+### n8n Database Schema (CRITICAL)
+- Workflows are in `n8n.workflow_entity` NOT `public.workflow_entity`
+- Always use `n8n.` prefix when querying or updating workflows
+- Workflow IDs:
+  - `8GdOVgHbGoPaT6mM` = 09 - Harmony Ingest
+  - `l2RiR02qed1XaTzX` = 02 - AI Completeness Analysis
 
-### API Key Note
-- n8n process API key may differ from env file
-- Check running process: `cat /proc/$(pgrep -f "n8n start" | head -1)/environ | tr "\0" "\n" | grep N8N_API_KEY`
+### Troubleshoot Endpoint Response Format
+```json
+{
+  "success": true,
+  "stage": "scrape",
+  "model_used": "qwen2.5-coder:7b",
+  "data": {"tender_id": "...", "title": "..."},
+  "diagnosis": "...",
+  "confidence": 0.9,
+  "needs_manual": false,
+  "recovered": true
+}
+```
+
+### responseMode Rules (CRITICAL)
+- **WITH Respond nodes**: Use `responseMode: "responseNode"`
+- **WITHOUT Respond nodes**: Remove `responseMode` entirely

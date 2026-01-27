@@ -1,5 +1,6 @@
 {
   "name": "02 - AI Completeness Analysis",
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -81,7 +82,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build bid context for analysis\nconst bid = $('Get Bid Details').first().json;\nconst ocrResult = $('OCR Documents')?.first()?.json?.response || 'No documents provided';\n\nconst bidContext = {\n  reference_number: bid.reference_number,\n  title: bid.title,\n  client_name: bid.client_name,\n  client_contact: bid.client_contact,\n  client_email: bid.client_email,\n  estimated_value: bid.estimated_value,\n  currency: bid.currency,\n  submission_deadline: bid.submission_deadline,\n  project_duration_days: bid.project_duration_days,\n  priority: bid.priority,\n  notes: bid.notes,\n  document_count: bid.document_urls?.length || 0,\n  document_extraction: ocrResult\n};\n\nreturn [{ json: { bid_id: bid.id, context: bidContext } }];"
+        "jsCode": "// Build bid context for analysis\nconst bid = $('Get Bid Details').first().json;\nconst ocrResult = $('OCR Documents')?.first()?.json?.response || 'No documents provided';\n\nconst bidContext = {\n  reference_number: bid.reference_number,\n  title: bid.title,\n  client_name: bid.client_name,\n  client_contact: bid.client_contact,\n  client_email: bid.client_email,\n  estimated_value: bid.estimated_value,\n  currency: bid.currency,\n  submission_deadline: bid.submission_deadline,\n  project_duration_days: bid.project_duration_days,\n  priority: bid.priority,\n  notes: bid.notes,\n  document_count: bid.document_urls?.length || 0,\n  document_extraction: ocrResult\n};\n\nreturn [{ json: { bid_id: bid.id, context: bidContext, retry_count: 0 } }];"
       },
       "id": "code-build-context",
       "name": "Build Analysis Context",
@@ -95,7 +96,7 @@
         "url": "={{ $env.OLLAMA_URL || 'http://localhost:11434' }}/api/generate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  model: $env.ANALYSIS_MODEL || 'qwen3-coder:30b',\n  prompt: `You are a bid analysis expert. Analyze this bid submission for completeness and provide scoring.\\n\\nBID CONTEXT:\\n${JSON.stringify($json.context, null, 2)}\\n\\nANALYSIS REQUIREMENTS:\\n1. COMPLETENESS SCORE (0-100):\\n   - Executive summary present (10 pts)\\n   - Clear scope definition (15 pts)\\n   - Technical requirements detailed (15 pts)\\n   - Timeline/milestones specified (10 pts)\\n   - Budget/pricing complete (15 pts)\\n   - Evaluation criteria understood (10 pts)\\n   - Submission requirements clear (10 pts)\\n   - Contact information available (5 pts)\\n   - Supporting documents provided (10 pts)\\n\\n2. MISSING SECTIONS: List any critical missing information\\n\\n3. WIN PROBABILITY ASSESSMENT (0-100):\\n   Consider: market fit, competitive positioning, pricing, timeline feasibility\\n\\n4. RISK SCORE (0-100, higher = more risky):\\n   Consider: complexity, timeline pressure, resource requirements, unknowns\\n\\n5. RECOMMENDATIONS: Top 3 actions to improve this bid\\n\\nRESPOND IN THIS EXACT JSON FORMAT:\\n{\\n  \"completeness_score\": <number>,\\n  \"missing_sections\": [<string array>],\\n  \"win_probability\": <number>,\\n  \"risk_score\": <number>,\\n  \"recommendations\": [<string array max 5>],\\n  \"analysis_summary\": \"<brief summary>\",\\n  \"detailed_assessment\": {\\n    \"strengths\": [<string array>],\\n    \"weaknesses\": [<string array>],\\n    \"opportunities\": [<string array>],\\n    \"threats\": [<string array>]\\n  }\\n}`,\n  stream: false,\n  options: {\n    temperature: 0.4,\n    num_predict: 2000\n  }\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  model: $env.ANALYSIS_MODEL || 'gemma2:9b',\n  prompt: `You are a bid analysis expert. Analyze this bid submission for completeness and provide scoring.\\n\\nBID CONTEXT:\\n${JSON.stringify($json.context, null, 2)}\\n\\nANALYSIS REQUIREMENTS:\\n1. COMPLETENESS SCORE (0-100):\\n   - Executive summary present (10 pts)\\n   - Clear scope definition (15 pts)\\n   - Technical requirements detailed (15 pts)\\n   - Timeline/milestones specified (10 pts)\\n   - Budget/pricing complete (15 pts)\\n   - Evaluation criteria understood (10 pts)\\n   - Submission requirements clear (10 pts)\\n   - Contact information available (5 pts)\\n   - Supporting documents provided (10 pts)\\n\\n2. MISSING SECTIONS: List any critical missing information\\n\\n3. WIN PROBABILITY ASSESSMENT (0-100):\\n   Consider: market fit, competitive positioning, pricing, timeline feasibility\\n\\n4. RISK SCORE (0-100, higher = more risky):\\n   Consider: complexity, timeline pressure, resource requirements, unknowns\\n\\n5. RECOMMENDATIONS: Top 3 actions to improve this bid\\n\\nRESPOND IN THIS EXACT JSON FORMAT:\\n{\\n  \"completeness_score\": <number>,\\n  \"missing_sections\": [<string array>],\\n  \"win_probability\": <number>,\\n  \"risk_score\": <number>,\\n  \"recommendations\": [<string array max 5>],\\n  \"analysis_summary\": \"<brief summary>\",\\n  \"detailed_assessment\": {\\n    \"strengths\": [<string array>],\\n    \"weaknesses\": [<string array>],\\n    \"opportunities\": [<string array>],\\n    \"threats\": [<string array>]\\n  }\\n}`,\n  stream: false,\n  options: {\n    temperature: 0.4,\n    num_predict: 2000\n  }\n}) }}",
         "options": {
           "timeout": 180000
         }
@@ -104,7 +105,155 @@
       "name": "AI Completeness Analysis",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1340, 300]
+      "position": [1340, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-analysis-failed",
+              "leftValue": "={{ !$json.response || $json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-analysis-failed",
+      "name": "Analysis Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if we should retry\nconst context = $('Build Analysis Context').first().json;\nconst retryCount = context.retry_count || 0;\n\nif (retryCount >= 1) {\n  // Already retried once, go to troubleshoot fallback\n  return [{ json: { ...context, should_troubleshoot: true } }];\n}\n\n// Prepare for retry with incremented count\nreturn [{ json: { ...context, retry_count: retryCount + 1, should_troubleshoot: false } }];"
+      },
+      "id": "code-check-retry",
+      "name": "Check Retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-should-troubleshoot",
+              "leftValue": "={{ $json.should_troubleshoot }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-should-troubleshoot",
+      "name": "Should Troubleshoot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_URL || 'http://localhost:11434' }}/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: $env.ANALYSIS_MODEL || 'gemma2:9b',\n  prompt: `You are a bid analysis expert. Analyze this bid submission for completeness and provide scoring.\\n\\nBID CONTEXT:\\n${JSON.stringify($json.context, null, 2)}\\n\\nANALYSIS REQUIREMENTS:\\n1. COMPLETENESS SCORE (0-100)\\n2. WIN PROBABILITY (0-100)\\n3. RISK SCORE (0-100)\\n4. Missing sections list\\n5. Top 3 recommendations\\n\\nRESPOND IN THIS EXACT JSON FORMAT:\\n{\\n  \"completeness_score\": <number>,\\n  \"missing_sections\": [<string array>],\\n  \"win_probability\": <number>,\\n  \"risk_score\": <number>,\\n  \"recommendations\": [<string array max 3>],\\n  \"analysis_summary\": \"<brief summary>\"\\n}`,\n  stream: false,\n  options: {\n    temperature: 0.3,\n    num_predict: 1500\n  }\n}) }}",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "id": "ollama-analysis-retry",
+      "name": "AI Analysis Retry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 100],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BORAK_URL || 'http://localhost:8012' }}/api/troubleshoot",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  stage: 'analyze',\n  error_data: {\n    title: $json.context.title,\n    client: $json.context.client_name,\n    deadline: $json.context.submission_deadline,\n    doc_count: $json.context.document_count\n  },\n  context: {}\n}) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "troubleshoot-analyze",
+      "name": "Troubleshoot Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Use troubleshoot fallback scores\nconst context = $('Build Analysis Context').first().json;\nconst troubleshootResult = $json;\n\nlet analysis;\nif (troubleshootResult.recovered && troubleshootResult.data) {\n  analysis = troubleshootResult.data;\n} else {\n  // Ultimate fallback - default scores with manual review flag\n  analysis = {\n    completeness_score: 50,\n    missing_sections: ['AI analysis failed - manual review required'],\n    win_probability: 50,\n    risk_score: 50,\n    recommendations: ['Manual review of bid documents required', 'Verify all fields manually'],\n    analysis_summary: 'AI analysis could not be completed. Default scores applied.',\n    detailed_assessment: {\n      strengths: [],\n      weaknesses: ['AI analysis incomplete'],\n      opportunities: [],\n      threats: ['Unknown due to analysis failure']\n    }\n  };\n}\n\nreturn [{\n  json: {\n    bid_id: context.bid_id,\n    analysis: analysis,\n    new_status: 'NEEDS_MANUAL_REVIEW',\n    needs_info: true,\n    used_fallback: true,\n    troubleshoot_diagnosis: troubleshootResult.diagnosis || 'Analysis timeout/failure'\n  }\n}];"
+      },
+      "id": "code-fallback-scores",
+      "name": "Apply Fallback Scores",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI analysis response (from retry)\nconst rawResponse = $json.response || '{}';\nconst context = $('Build Analysis Context').first().json;\n\n// Try to extract JSON from response\nlet analysis;\ntry {\n  const jsonMatch = rawResponse.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    analysis = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found in response');\n  }\n} catch (e) {\n  // Retry also failed - will need to troubleshoot\n  return [{\n    json: {\n      ...context,\n      retry_failed: true,\n      should_troubleshoot: true\n    }\n  }];\n}\n\n// Validate and clamp scores\nanalysis.completeness_score = Math.min(100, Math.max(0, parseInt(analysis.completeness_score) || 50));\nanalysis.win_probability = Math.min(100, Math.max(0, parseInt(analysis.win_probability) || 50));\nanalysis.risk_score = Math.min(100, Math.max(0, parseInt(analysis.risk_score) || 50));\n\nconst needsInfo = analysis.completeness_score < 70;\nconst newStatus = needsInfo ? 'NEEDS_INFO' : 'TECHNICAL_REVIEW';\n\nreturn [{\n  json: {\n    bid_id: context.bid_id,\n    analysis: analysis,\n    new_status: newStatus,\n    needs_info: needsInfo,\n    used_retry: true\n  }\n}];"
+      },
+      "id": "code-parse-retry",
+      "name": "Parse Retry Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-retry-failed",
+              "leftValue": "={{ $json.retry_failed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-retry-failed",
+      "name": "Retry Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2660, 100]
     },
     {
       "parameters": {
@@ -114,7 +263,7 @@
       "name": "Parse AI Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1560, 300]
+      "position": [1780, 400]
     },
     {
       "parameters": {
@@ -128,7 +277,7 @@
       "name": "Update Bid Scores",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1780, 300],
+      "position": [2880, 300],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -141,14 +290,14 @@
         "operation": "executeQuery",
         "query": "INSERT INTO audit_log (\n  entity_type, entity_id, action,\n  actor_type, new_value, source\n) VALUES (\n  'bid', $1, 'ai_analysis_completed',\n  'ai',\n  $2,\n  'workflow'\n)",
         "options": {
-          "queryReplacement": "={{ [\n  $('Parse AI Response').first().json.bid_id,\n  JSON.stringify({\n    completeness_score: $('Parse AI Response').first().json.analysis.completeness_score,\n    win_probability: $('Parse AI Response').first().json.analysis.win_probability,\n    risk_score: $('Parse AI Response').first().json.analysis.risk_score,\n    new_status: $('Parse AI Response').first().json.new_status\n  })\n] }}"
+          "queryReplacement": "={{ [\n  $('Parse AI Response').first()?.json?.bid_id || $('Apply Fallback Scores').first()?.json?.bid_id || $('Parse Retry Response').first()?.json?.bid_id,\n  JSON.stringify({\n    completeness_score: $json.analysis?.completeness_score,\n    win_probability: $json.analysis?.win_probability,\n    risk_score: $json.analysis?.risk_score,\n    new_status: $json.new_status,\n    used_fallback: $json.used_fallback || false,\n    used_retry: $json.used_retry || false\n  })\n] }}"
         }
       },
       "id": "postgres-audit-analysis",
       "name": "Log Analysis to Audit",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2000, 200],
+      "position": [3100, 200],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -166,8 +315,57 @@
           },
           "conditions": [
             {
+              "id": "check-needs-manual",
+              "leftValue": "={{ $json.new_status === 'NEEDS_MANUAL_REVIEW' || $json.used_fallback }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-needs-manual",
+      "name": "Needs Manual Review?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3100, 400]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
+        "text": "={{ `\\u26A0\\uFE0F *AI Analysis Failed \\- Manual Review Required*\\n\\n*Reference:* ${$json.reference_number}\\n*Status:* NEEDS\\_MANUAL\\_REVIEW\\n\\n*Reason:* AI analysis timed out or failed after retry\\.\\n*Fallback Scores Applied:*\\n\\u2022 Completeness: 50%\\n\\u2022 Win Probability: 50%\\n\\u2022 Risk: 50%\\n\\n_Please review this bid manually\\._` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-manual-review",
+      "name": "Notify: Manual Review",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3320, 500],
+      "credentials": {
+        "telegramApi": {
+          "id": "tenderbirubot",
+          "name": "tenderbirubot"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
               "id": "check-needs-info",
-              "leftValue": "={{ $('Parse AI Response').first().json.needs_info }}",
+              "leftValue": "={{ $json.needs_info && $json.new_status !== 'NEEDS_MANUAL_REVIEW' }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -181,13 +379,13 @@
       "name": "Needs More Info?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [2000, 400]
+      "position": [3320, 300]
     },
     {
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
-        "text": "={{ `\\u26A0\\uFE0F *Bid Needs Additional Information*\\n\\n*Reference:* ${$json.reference_number}\\n*Completeness Score:* ${$('Parse AI Response').first().json.analysis.completeness_score}%\\n\\n*Missing Information:*\\n${($('Parse AI Response').first().json.analysis.missing_sections || []).map(s => '\\u2022 ' + s.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n*Recommendations:*\\n${($('Parse AI Response').first().json.analysis.recommendations || []).slice(0, 3).map(r => '\\u2022 ' + r.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n_Please provide the missing information to proceed\\._` }}",
+        "text": "={{ `\\u26A0\\uFE0F *Bid Needs Additional Information*\\n\\n*Reference:* ${$json.reference_number}\\n*Completeness Score:* ${$json.analysis?.completeness_score || 50}%\\n\\n*Missing Information:*\\n${($json.analysis?.missing_sections || []).map(s => '\\u2022 ' + s.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n*Recommendations:*\\n${($json.analysis?.recommendations || []).slice(0, 3).map(r => '\\u2022 ' + r.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n_Please provide the missing information to proceed\\._` }}",
         "additionalFields": {
           "parse_mode": "MarkdownV2"
         }
@@ -196,7 +394,7 @@
       "name": "Notify: Needs Info",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2220, 500],
+      "position": [3540, 400],
       "credentials": {
         "telegramApi": {
           "id": "tenderbirubot",
@@ -210,7 +408,7 @@
         "url": "={{ $env.N8N_WEBHOOK_BASE_URL }}/webhook/bid/technical-review",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  bid_id: $('Parse AI Response').first().json.bid_id,\n  reference_number: $json.reference_number,\n  completeness_score: $('Parse AI Response').first().json.analysis.completeness_score,\n  win_probability: $('Parse AI Response').first().json.analysis.win_probability\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  bid_id: $json.bid_id,\n  reference_number: $json.reference_number,\n  completeness_score: $json.analysis?.completeness_score,\n  win_probability: $json.analysis?.win_probability\n}) }}",
         "options": {
           "timeout": 5000
         }
@@ -219,14 +417,14 @@
       "name": "Trigger Technical Review",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2220, 300],
+      "position": [3540, 200],
       "continueOnFail": true
     },
     {
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
-        "text": "={{ `\\u2705 *AI Analysis Complete*\\n\\n*Reference:* ${$json.reference_number}\\n*Completeness:* ${$('Parse AI Response').first().json.analysis.completeness_score}%\\n*Win Probability:* ${$('Parse AI Response').first().json.analysis.win_probability}%\\n*Risk Score:* ${$('Parse AI Response').first().json.analysis.risk_score}%\\n\\n_Proceeding to Technical Review\\._` }}",
+        "text": "={{ `\\u2705 *AI Analysis Complete*\\n\\n*Reference:* ${$json.reference_number}\\n*Completeness:* ${$json.analysis?.completeness_score || 0}%\\n*Win Probability:* ${$json.analysis?.win_probability || 0}%\\n*Risk Score:* ${$json.analysis?.risk_score || 0}%\\n${$json.used_retry ? '\\n\\u26A0\\uFE0F _Used retry attempt_' : ''}\\n\\n_Proceeding to Technical Review\\._` }}",
         "additionalFields": {
           "parse_mode": "MarkdownV2"
         }
@@ -235,7 +433,7 @@
       "name": "Notify: Analysis Complete",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2440, 300],
+      "position": [3760, 200],
       "credentials": {
         "telegramApi": {
           "id": "tenderbirubot",
@@ -247,133 +445,84 @@
   ],
   "connections": {
     "Webhook: Analyze Bid": {
-      "main": [
-        [
-          {
-            "node": "Get Bid Details",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Get Bid Details", "type": "main", "index": 0}]]
     },
     "Get Bid Details": {
-      "main": [
-        [
-          {
-            "node": "Has Documents?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Has Documents?", "type": "main", "index": 0}]]
     },
     "Has Documents?": {
       "main": [
-        [
-          {
-            "node": "OCR Documents",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Build Analysis Context",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "OCR Documents", "type": "main", "index": 0}],
+        [{"node": "Build Analysis Context", "type": "main", "index": 0}]
       ]
     },
     "OCR Documents": {
-      "main": [
-        [
-          {
-            "node": "Build Analysis Context",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Build Analysis Context", "type": "main", "index": 0}]]
     },
     "Build Analysis Context": {
-      "main": [
-        [
-          {
-            "node": "AI Completeness Analysis",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "AI Completeness Analysis", "type": "main", "index": 0}]]
     },
     "AI Completeness Analysis": {
+      "main": [[{"node": "Analysis Failed?", "type": "main", "index": 0}]]
+    },
+    "Analysis Failed?": {
       "main": [
-        [
-          {
-            "node": "Parse AI Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "Check Retry", "type": "main", "index": 0}],
+        [{"node": "Parse AI Response", "type": "main", "index": 0}]
       ]
     },
-    "Parse AI Response": {
+    "Check Retry": {
+      "main": [[{"node": "Should Troubleshoot?", "type": "main", "index": 0}]]
+    },
+    "Should Troubleshoot?": {
       "main": [
-        [
-          {
-            "node": "Update Bid Scores",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "Troubleshoot Analyze", "type": "main", "index": 0}],
+        [{"node": "AI Analysis Retry", "type": "main", "index": 0}]
       ]
+    },
+    "AI Analysis Retry": {
+      "main": [[{"node": "Parse Retry Response", "type": "main", "index": 0}]]
+    },
+    "Parse Retry Response": {
+      "main": [[{"node": "Retry Failed?", "type": "main", "index": 0}]]
+    },
+    "Retry Failed?": {
+      "main": [
+        [{"node": "Troubleshoot Analyze", "type": "main", "index": 0}],
+        [{"node": "Update Bid Scores", "type": "main", "index": 0}]
+      ]
+    },
+    "Troubleshoot Analyze": {
+      "main": [[{"node": "Apply Fallback Scores", "type": "main", "index": 0}]]
+    },
+    "Apply Fallback Scores": {
+      "main": [[{"node": "Update Bid Scores", "type": "main", "index": 0}]]
+    },
+    "Parse AI Response": {
+      "main": [[{"node": "Update Bid Scores", "type": "main", "index": 0}]]
     },
     "Update Bid Scores": {
       "main": [
         [
-          {
-            "node": "Log Analysis to Audit",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Needs More Info?",
-            "type": "main",
-            "index": 0
-          }
+          {"node": "Log Analysis to Audit", "type": "main", "index": 0},
+          {"node": "Needs Manual Review?", "type": "main", "index": 0}
         ]
+      ]
+    },
+    "Needs Manual Review?": {
+      "main": [
+        [{"node": "Notify: Manual Review", "type": "main", "index": 0}],
+        [{"node": "Needs More Info?", "type": "main", "index": 0}]
       ]
     },
     "Needs More Info?": {
       "main": [
-        [
-          {
-            "node": "Trigger Technical Review",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Notify: Needs Info",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "Notify: Needs Info", "type": "main", "index": 0}],
+        [{"node": "Trigger Technical Review", "type": "main", "index": 0}]
       ]
     },
     "Trigger Technical Review": {
-      "main": [
-        [
-          {
-            "node": "Notify: Analysis Complete",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Notify: Analysis Complete", "type": "main", "index": 0}]]
     }
   },
   "settings": {
@@ -384,13 +533,10 @@
   },
   "staticData": null,
   "tags": [
-    {
-      "name": "bidding-system"
-    },
-    {
-      "name": "ai-analysis"
-    }
+    {"name": "bidding-system"},
+    {"name": "ai-analysis"},
+    {"name": "troubleshoot-enabled"}
   ],
   "triggerCount": 1,
-  "versionId": "1.0.0"
+  "versionId": "2.0.0"
 }
