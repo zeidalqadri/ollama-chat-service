@@ -192,6 +192,25 @@ class SystemPromptUpdate(BaseModel):
     model_prompts: Optional[Dict[str, str]] = None
 
 
+# Troubleshooting models for tender pipeline
+class TroubleshootRequest(BaseModel):
+    """Request for troubleshooting a pipeline failure."""
+    stage: str  # scrape, extract, analyze, document, submit
+    error_data: Dict  # Error details from the failed stage
+    context: Optional[Dict] = None  # Additional context (e.g., raw_html, partial_data)
+
+
+class TroubleshootResult(BaseModel):
+    """Result from troubleshooting attempt."""
+    success: bool
+    recovered: bool
+    recovered_data: Optional[Dict] = None
+    diagnosis: str
+    action_taken: str
+    confidence: float = 0.0
+    needs_manual: bool = False
+
+
 # System prompt presets
 SYSTEM_PROMPT_PRESETS = [
     {"id": "none", "name": "Default (none)", "prompt": None},
@@ -2215,6 +2234,257 @@ async def api_get_execution(execution_id: int, user_id: int = Depends(get_curren
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
     return execution
+
+
+# =============================================================================
+# Troubleshooting Routes (Tender Pipeline)
+# =============================================================================
+
+# Model assignments for troubleshooting by stage
+TROUBLESHOOT_MODELS = {
+    "scrape": "qwen2.5-coder:7b",
+    "extract": "qwen2.5-coder:7b",
+    "analyze": "gemma2:9b",
+    "document": "deepseek-ocr",
+    "submit": "qwen2.5-coder:7b"
+}
+
+# Troubleshooting prompt templates
+TROUBLESHOOT_PROMPTS = {
+    "scrape": """A web scraper failed to extract tender data from this page.
+
+URL: {url}
+Error: {error_message}
+Raw HTML (truncated): {html}
+
+Tasks:
+1. Determine why extraction might have failed
+2. Extract these fields if possible:
+   - tender_id, title, organization, closing_date, estimated_value, currency
+3. Return JSON with extracted data and confidence (0-1)
+
+Response format:
+{{"diagnosis": "...", "extracted": {{}}, "confidence": 0.X, "recoverable": true/false}}""",
+
+    "extract": """Tender data is missing required fields.
+
+Available data: {partial_data}
+Missing fields: {missing_fields}
+Today's date: {today}
+
+Infer the missing fields from context if possible.
+For dates, "2 weeks" = {two_weeks_from_now}.
+
+Return only the inferred fields as JSON, with confidence per field.
+{{"field": "value", "_confidence_field": 0.X, "diagnosis": "..."}}""",
+
+    "analyze": """Previous analysis attempt failed. Simplified analysis required.
+
+Tender: {title}
+Client: {client}
+Deadline: {deadline}
+Documents: {doc_count} attached
+
+Provide simple scores (0-100):
+- completeness_score: How complete is the submission?
+- win_probability: Rough estimate
+- risk_score: Overall risk level
+
+Return JSON only: {{"completeness_score": X, "win_probability": X, "risk_score": X, "diagnosis": "fallback analysis", "recoverable": true}}""",
+
+    "document": """OCR failed to extract text from a document.
+
+Document URL: {url}
+Error: {error_message}
+Document type: {doc_type}
+
+Attempt to:
+1. Identify what type of document this might be
+2. Suggest alternative extraction approaches
+3. Extract any visible text if image data is provided
+
+Response format:
+{{"diagnosis": "...", "extracted_text": "...", "document_type": "...", "confidence": 0.X, "recoverable": true/false}}""",
+
+    "submit": """Portal form submission failed.
+
+Portal: {portal}
+Error message: {error_message}
+Form data attempted: {form_data}
+
+Analyze the error and:
+1. Identify the likely cause
+2. Suggest field corrections if validation error
+3. Recommend next action (retry, manual, escalate)
+
+Response format:
+{{"diagnosis": "...", "suggested_corrections": {{}}, "action": "retry|manual|escalate", "recoverable": true/false}}"""
+}
+
+
+async def run_troubleshoot(model: str, stage: str, error_data: Dict, context: Optional[Dict]) -> Dict:
+    """Execute troubleshooting prompt against the appropriate model."""
+    from datetime import datetime, timedelta
+
+    # Build prompt from template
+    prompt_template = TROUBLESHOOT_PROMPTS.get(stage, TROUBLESHOOT_PROMPTS["analyze"])
+
+    # Prepare template variables
+    today = datetime.now().strftime("%Y-%m-%d")
+    two_weeks = (datetime.now() + timedelta(weeks=2)).strftime("%Y-%m-%d")
+
+    template_vars = {
+        "url": error_data.get("url", "N/A"),
+        "error_message": error_data.get("error", "Unknown error"),
+        "html": str(context.get("raw_html", ""))[:5000] if context else "",
+        "partial_data": json.dumps(error_data.get("partial_data", {}), indent=2),
+        "missing_fields": ", ".join(error_data.get("missing_fields", [])),
+        "today": today,
+        "two_weeks_from_now": two_weeks,
+        "title": error_data.get("title", "Unknown"),
+        "client": error_data.get("client", "Unknown"),
+        "deadline": error_data.get("deadline", "Unknown"),
+        "doc_count": error_data.get("doc_count", 0),
+        "doc_type": error_data.get("doc_type", "unknown"),
+        "portal": error_data.get("portal", "Unknown"),
+        "form_data": json.dumps(error_data.get("form_data", {}), indent=2)
+    }
+
+    try:
+        prompt = prompt_template.format(**template_vars)
+    except KeyError as e:
+        prompt = prompt_template  # Use raw if format fails
+
+    # Call Ollama
+    try:
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.3,
+                "num_predict": 1500
+            }
+        }
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            response = await client.post(f"{OLLAMA_URL}/api/generate", json=payload)
+
+            if response.status_code == 200:
+                result = response.json()
+                raw_response = result.get("response", "{}")
+
+                # Try to parse JSON from response
+                try:
+                    json_match = re.search(r'\{[\s\S]*\}', raw_response)
+                    if json_match:
+                        parsed = json.loads(json_match.group(0))
+
+                        # Handle analyze stage differently - scores are at top level
+                        if stage == "analyze" and "completeness_score" in parsed:
+                            return {
+                                "success": True,
+                                "recovered": True,
+                                "recovered_data": {
+                                    "completeness_score": parsed.get("completeness_score", 50),
+                                    "win_probability": parsed.get("win_probability", 50),
+                                    "risk_score": parsed.get("risk_score", 50)
+                                },
+                                "diagnosis": parsed.get("diagnosis", "Fallback analysis complete"),
+                                "action_taken": f"Troubleshoot via {model}",
+                                "confidence": 0.7,
+                                "needs_manual": False
+                            }
+
+                        return {
+                            "success": True,
+                            "recovered": parsed.get("recoverable", False),
+                            "recovered_data": parsed.get("extracted", parsed.get("suggested_corrections", {})),
+                            "diagnosis": parsed.get("diagnosis", "Analysis complete"),
+                            "action_taken": f"Troubleshoot via {model}",
+                            "confidence": parsed.get("confidence", 0.5),
+                            "needs_manual": not parsed.get("recoverable", False)
+                        }
+                except json.JSONDecodeError:
+                    pass
+
+                # Fallback if JSON parsing fails
+                return {
+                    "success": True,
+                    "recovered": False,
+                    "recovered_data": None,
+                    "diagnosis": raw_response[:500],
+                    "action_taken": f"Troubleshoot via {model} (unparseable response)",
+                    "confidence": 0.0,
+                    "needs_manual": True
+                }
+            else:
+                return {
+                    "success": False,
+                    "recovered": False,
+                    "recovered_data": None,
+                    "diagnosis": f"Model request failed: HTTP {response.status_code}",
+                    "action_taken": "None - model unavailable",
+                    "confidence": 0.0,
+                    "needs_manual": True
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "recovered": False,
+            "recovered_data": None,
+            "diagnosis": f"Troubleshoot error: {str(e)}",
+            "action_taken": "None - exception occurred",
+            "confidence": 0.0,
+            "needs_manual": True
+        }
+
+
+@app.post("/api/troubleshoot")
+async def api_troubleshoot(request: TroubleshootRequest):
+    """
+    Generic troubleshooting endpoint for pipeline failures.
+
+    Stages: scrape, extract, analyze, document, submit
+    Each stage routes to an appropriate model for diagnosis and recovery.
+    """
+    stage = request.stage.lower()
+
+    if stage not in TROUBLESHOOT_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid stage: {stage}. Valid stages: {list(TROUBLESHOOT_MODELS.keys())}"
+        )
+
+    model = TROUBLESHOOT_MODELS[stage]
+
+    result = await run_troubleshoot(
+        model=model,
+        stage=stage,
+        error_data=request.error_data,
+        context=request.context
+    )
+
+    return {
+        "success": result["success"],
+        "stage": stage,
+        "model_used": model,
+        "data": result.get("recovered_data"),
+        "diagnosis": result["diagnosis"],
+        "action_taken": result["action_taken"],
+        "confidence": result["confidence"],
+        "needs_manual": result["needs_manual"],
+        "recovered": result["recovered"]
+    }
+
+
+@app.get("/api/troubleshoot/models")
+async def api_troubleshoot_models():
+    """Get the model assignments for each troubleshooting stage."""
+    return {
+        "stages": TROUBLESHOOT_MODELS,
+        "prompts_available": list(TROUBLESHOOT_PROMPTS.keys())
+    }
 
 
 # =============================================================================
