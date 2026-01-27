@@ -92,7 +92,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build daily summary message\nconst summary = $('Get Active Bids Summary').first().json;\nconst deadlines = $('Get Upcoming Deadlines').all();\nconst breaches = $('Get SLA Breaches').all();\n\nconst today = new Date().toLocaleDateString('en-US', {\n  weekday: 'long',\n  year: 'numeric',\n  month: 'long',\n  day: 'numeric'\n});\n\nlet message = `\\uD83D\\uDCCA *Daily Bidding Report*\\n_${today}_\\n\\n`;\n\n// Summary section\nmessage += `*Pipeline Summary:*\\n`;\nmessage += `\\u2022 Total Active: ${summary.total_active || 0}\\n`;\nmessage += `\\u2022 In Review: ${(summary.tech_review || 0) + (summary.comm_review || 0) + (summary.mgmt_approval || 0)}\\n`;\nmessage += `\\u2022 Needs Info: ${summary.needs_info || 0}\\n`;\nmessage += `\\u2022 Ready to Submit: ${summary.approved || 0}\\n`;\nmessage += `\\u2022 Total Pipeline Value: $${summary.total_value ? Number(summary.total_value).toLocaleString() : '0'}\\n`;\nmessage += `\\u2022 Avg Win Probability: ${summary.avg_win_prob ? Math.round(summary.avg_win_prob) : 'N/A'}%\\n\\n`;\n\n// Deadline warnings\nif (deadlines.length > 0) {\n  message += `\\u26A0\\uFE0F *Upcoming Deadlines (3 days):*\\n`;\n  for (const d of deadlines.slice(0, 5)) {\n    const daysText = d.json.days_remaining < 1 ? 'TODAY!' : `${Math.ceil(d.json.days_remaining)} days`;\n    message += `\\u2022 ${d.json.reference_number}: ${daysText} - ${d.json.client_name}\\n`;\n  }\n  message += `\\n`;\n}\n\n// SLA breaches\nif (breaches.length > 0) {\n  message += `\\uD83D\\uDEA8 *SLA Breaches (${breaches.length}):*\\n`;\n  for (const b of breaches.slice(0, 5)) {\n    message += `\\u2022 ${b.json.reference_number} (${b.json.review_type}) - ${Math.round(b.json.hours_overdue)}h overdue - @${b.json.reviewer_name}\\n`;\n  }\n  message += `\\n`;\n}\n\n// Status counts\nmessage += `*By Review Stage:*\\n`;\nmessage += `\\u2022 Technical: ${summary.tech_review || 0}\\n`;\nmessage += `\\u2022 Commercial: ${summary.comm_review || 0}\\n`;\nmessage += `\\u2022 Management: ${summary.mgmt_approval || 0}\\n`;\n\nreturn [{ json: { message: message, has_breaches: breaches.length > 0, breach_count: breaches.length } }];"
+        "jsCode": "// Build daily summary message\nconst summary = $('Get Active Bids Summary').first().json;\nconst deadlines = $('Get Upcoming Deadlines').all();\nconst breaches = $('Get SLA Breaches').all();\n\nconst today = new Date().toLocaleDateString('en-US', {\n  weekday: 'long',\n  year: 'numeric',\n  month: 'long',\n  day: 'numeric'\n});\n\nlet message = `📊 DAILY BIDDING REPORT\\n${today}\\n\\n`;\n\n// Summary section\nmessage += `📋 PIPELINE SUMMARY:\\n`;\nmessage += `• Total Active: ${summary.total_active || 0}\\n`;\nmessage += `• In Review: ${(summary.tech_review || 0) + (summary.comm_review || 0) + (summary.mgmt_approval || 0)}\\n`;\nmessage += `• Needs Info: ${summary.needs_info || 0}\\n`;\nmessage += `• Ready to Submit: ${summary.approved || 0}\\n`;\nmessage += `• Total Pipeline Value: $${summary.total_value ? Number(summary.total_value).toLocaleString() : '0'}\\n`;\nmessage += `• Avg Win Probability: ${summary.avg_win_prob ? Math.round(summary.avg_win_prob) : 'N/A'}%\\n\\n`;\n\n// Deadline warnings\nif (deadlines.length > 0) {\n  message += `⚠️ UPCOMING DEADLINES (3 days):\\n`;\n  for (const d of deadlines.slice(0, 5)) {\n    const daysText = d.json.days_remaining < 1 ? 'TODAY!' : `${Math.ceil(d.json.days_remaining)} days`;\n    message += `• ${d.json.reference_number}: ${daysText} - ${d.json.client_name}\\n`;\n  }\n  message += `\\n`;\n}\n\n// SLA breaches\nif (breaches.length > 0) {\n  message += `🚨 SLA BREACHES (${breaches.length}):\\n`;\n  for (const b of breaches.slice(0, 5)) {\n    message += `• ${b.json.reference_number} (${b.json.review_type}) - ${Math.round(b.json.hours_overdue)}h overdue - ${b.json.reviewer_name}\\n`;\n  }\n  message += `\\n`;\n}\n\n// Status counts\nmessage += `📈 BY REVIEW STAGE:\\n`;\nmessage += `• Technical: ${summary.tech_review || 0}\\n`;\nmessage += `• Commercial: ${summary.comm_review || 0}\\n`;\nmessage += `• Management: ${summary.mgmt_approval || 0}\\n`;\n\nreturn [{ json: { message: message, has_breaches: breaches.length > 0, breach_count: breaches.length } }];"
       },
       "id": "code-build-report",
       "name": "Build Daily Report",
@@ -104,10 +104,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
-        "text": "={{ $json.message.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&').replace(/\\\\\\*/g, '*').replace(/\\\\_/g, '_') }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ $json.message }}",
+        "additionalFields": {}
       },
       "id": "telegram-daily-report",
       "name": "Send Daily Report",
@@ -152,10 +150,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_ESCALATION_GROUP }}",
-        "text": "={{ `\\uD83D\\uDEA8 *SLA BREACH ALERT*\\n\\n${$('Build Daily Report').first().json.breach_count} review\\(s\\) have exceeded their SLA deadline\\.\\n\\nImmediate action required\\. See daily report for details\\.` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `🚨 SLA BREACH ALERT\n\n${$('Build Daily Report').first().json.breach_count} review(s) have exceeded their SLA deadline.\n\nImmediate action required. See daily report for details.` }}",
+        "additionalFields": {}
       },
       "id": "telegram-escalation",
       "name": "Send Escalation Alert",
@@ -224,7 +220,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build weekly analytics report\nconst stats = $('Get Weekly Stats').first().json;\nconst reviewers = $('Get Reviewer Performance').all();\n\nconst weekStart = new Date();\nweekStart.setDate(weekStart.getDate() - 7);\nconst weekEnd = new Date();\n\nlet message = `\\uD83D\\uDCC8 *Weekly Bidding Analytics*\\n`;\nmessage += `_${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}_\\n\\n`;\n\n// Win/Loss summary\nmessage += `*Outcomes This Week:*\\n`;\nmessage += `\\u2022 Won: ${stats.won || 0} ($${stats.won_value ? Number(stats.won_value).toLocaleString() : '0'})\\n`;\nmessage += `\\u2022 Lost: ${stats.lost || 0} ($${stats.lost_value ? Number(stats.lost_value).toLocaleString() : '0'})\\n`;\nmessage += `\\u2022 No Decision: ${stats.no_decision || 0}\\n`;\nmessage += `\\u2022 *Win Rate: ${stats.win_rate || 0}%*\\n\\n`;\n\n// Activity\nmessage += `*Activity:*\\n`;\nmessage += `\\u2022 New Submissions: ${stats.new_submissions || 0}\\n`;\nmessage += `\\u2022 Decisions Made: ${stats.total_decided || 0}\\n\\n`;\n\n// Reviewer leaderboard\nif (reviewers.length > 0) {\n  message += `*Reviewer Performance:*\\n`;\n  for (let i = 0; i < Math.min(reviewers.length, 5); i++) {\n    const r = reviewers[i].json;\n    const medal = i === 0 ? '\\uD83E\\uDD47' : i === 1 ? '\\uD83E\\uDD48' : i === 2 ? '\\uD83E\\uDD49' : '\\u2022';\n    message += `${medal} ${r.name}: ${r.reviews_completed} reviews (${r.avg_response_hours || 'N/A'}h avg)\\n`;\n  }\n}\n\nreturn [{ json: { message: message } }];"
+        "jsCode": "// Build weekly analytics report\nconst stats = $('Get Weekly Stats').first().json;\nconst reviewers = $('Get Reviewer Performance').all();\n\nconst weekStart = new Date();\nweekStart.setDate(weekStart.getDate() - 7);\nconst weekEnd = new Date();\n\nlet message = `📈 WEEKLY BIDDING ANALYTICS\\n`;\nmessage += `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}\\n\\n`;\n\n// Win/Loss summary\nmessage += `🏆 OUTCOMES THIS WEEK:\\n`;\nmessage += `• Won: ${stats.won || 0} ($${stats.won_value ? Number(stats.won_value).toLocaleString() : '0'})\\n`;\nmessage += `• Lost: ${stats.lost || 0} ($${stats.lost_value ? Number(stats.lost_value).toLocaleString() : '0'})\\n`;\nmessage += `• No Decision: ${stats.no_decision || 0}\\n`;\nmessage += `• WIN RATE: ${stats.win_rate || 0}%\\n\\n`;\n\n// Activity\nmessage += `📊 ACTIVITY:\\n`;\nmessage += `• New Submissions: ${stats.new_submissions || 0}\\n`;\nmessage += `• Decisions Made: ${stats.total_decided || 0}\\n\\n`;\n\n// Reviewer leaderboard\nif (reviewers.length > 0) {\n  message += `👥 REVIEWER PERFORMANCE:\\n`;\n  for (let i = 0; i < Math.min(reviewers.length, 5); i++) {\n    const r = reviewers[i].json;\n    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '•';\n    message += `${medal} ${r.name}: ${r.reviews_completed} reviews (${r.avg_response_hours || 'N/A'}h avg)\\n`;\n  }\n}\n\nreturn [{ json: { message: message } }];"
       },
       "id": "code-weekly-report",
       "name": "Build Weekly Report",
@@ -236,10 +232,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
-        "text": "={{ $json.message.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&').replace(/\\\\\\*/g, '*').replace(/\\\\_/g, '_') }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ $json.message }}",
+        "additionalFields": {}
       },
       "id": "telegram-weekly-report",
       "name": "Send Weekly Report",

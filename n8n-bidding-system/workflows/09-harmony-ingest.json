@@ -135,10 +135,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
-        "text": "={{ `\\u26A0\\uFE0F *Harmony Ingest Warning*\\n\\n*Job:* ${$json.job_id || 'unknown'}\\n*Processed:* ${$json.processed}\\n*Recovered:* ${$json.recovered_count}\\n*Failed:* ${$json.failed_count}\\n\\n_Some extractions failed and require manual review\\._` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `⚠️ HARMONY INGEST WARNING\n\n📋 Job: ${$json.job_id || 'unknown'}\n✅ Processed: ${$json.processed}\n🔄 Recovered: ${$json.recovered_count}\n❌ Failed: ${$json.failed_count}\n\n👀 Some extractions failed and require manual review.` }}",
+        "additionalFields": {}
       },
       "id": "telegram-alert-failures",
       "name": "Alert: Extraction Failures",

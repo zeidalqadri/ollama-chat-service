@@ -87,10 +87,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
-        "text": "={{ `📋 *New Bid Submitted*\\n\\n*Reference:* ${$('Insert Bid').first().json.reference_number}\\n*Title:* ${$('Validate Input').first().json.bid.title.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Client:* ${$('Validate Input').first().json.bid.client_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Value:* ${$('Validate Input').first().json.bid.estimated_value ? '$' + $('Validate Input').first().json.bid.estimated_value.toLocaleString() : 'Not specified'}\\n*Deadline:* ${new Date($('Validate Input').first().json.bid.submission_deadline).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}\\n*Priority:* ${$('Validate Input').first().json.bid.priority}\\n\\n_AI analysis in progress\\.\\.\\._` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `📋 NEW BID SUBMITTED\n\n🔖 Reference: ${$('Insert Bid').first().json.reference_number}\n📝 Title: ${$('Validate Input').first().json.bid.title}\n🏢 Client: ${$('Validate Input').first().json.bid.client_name}\n💰 Value: ${$('Validate Input').first().json.bid.estimated_value ? '$' + $('Validate Input').first().json.bid.estimated_value.toLocaleString() : 'Not specified'}\n📅 Deadline: ${new Date($('Validate Input').first().json.bid.submission_deadline).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}\n🚨 Priority: ${$('Validate Input').first().json.bid.priority}\n\n⏳ AI analysis in progress...` }}",
+        "additionalFields": {}
       },
       "id": "telegram-notify",
       "name": "Notify Intake Group",

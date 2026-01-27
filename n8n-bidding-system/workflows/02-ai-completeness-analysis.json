@@ -336,10 +336,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
-        "text": "={{ `\\u26A0\\uFE0F *AI Analysis Failed \\- Manual Review Required*\\n\\n*Reference:* ${$json.reference_number}\\n*Status:* NEEDS\\_MANUAL\\_REVIEW\\n\\n*Reason:* AI analysis timed out or failed after retry\\.\\n*Fallback Scores Applied:*\\n\\u2022 Completeness: 50%\\n\\u2022 Win Probability: 50%\\n\\u2022 Risk: 50%\\n\\n_Please review this bid manually\\._` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `⚠️ AI ANALYSIS FAILED - MANUAL REVIEW REQUIRED\n\n🔖 Reference: ${$json.reference_number}\n📊 Status: NEEDS_MANUAL_REVIEW\n\n❓ Reason: AI analysis timed out or failed after retry.\n📈 Fallback Scores Applied:\n• Completeness: 50%\n• Win Probability: 50%\n• Risk: 50%\n\n👀 Please review this bid manually.` }}",
+        "additionalFields": {}
       },
       "id": "telegram-manual-review",
       "name": "Notify: Manual Review",
@@ -385,10 +383,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
-        "text": "={{ `\\u26A0\\uFE0F *Bid Needs Additional Information*\\n\\n*Reference:* ${$json.reference_number}\\n*Completeness Score:* ${$json.analysis?.completeness_score || 50}%\\n\\n*Missing Information:*\\n${($json.analysis?.missing_sections || []).map(s => '\\u2022 ' + s.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n*Recommendations:*\\n${($json.analysis?.recommendations || []).slice(0, 3).map(r => '\\u2022 ' + r.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n_Please provide the missing information to proceed\\._` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `⚠️ BID NEEDS ADDITIONAL INFORMATION\n\n🔖 Reference: ${$json.reference_number}\n📊 Completeness Score: ${$json.analysis?.completeness_score || 50}%\n\n❌ MISSING INFORMATION:\n${($json.analysis?.missing_sections || []).map(s => '• ' + s).join('\\n')}\n\n💡 RECOMMENDATIONS:\n${($json.analysis?.recommendations || []).slice(0, 3).map(r => '• ' + r).join('\\n')}\n\n📝 Please provide the missing information to proceed.` }}",
+        "additionalFields": {}
       },
       "id": "telegram-needs-info",
       "name": "Notify: Needs Info",
@@ -424,10 +420,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
-        "text": "={{ `\\u2705 *AI Analysis Complete*\\n\\n*Reference:* ${$json.reference_number}\\n*Completeness:* ${$json.analysis?.completeness_score || 0}%\\n*Win Probability:* ${$json.analysis?.win_probability || 0}%\\n*Risk Score:* ${$json.analysis?.risk_score || 0}%\\n${$json.used_retry ? '\\n\\u26A0\\uFE0F _Used retry attempt_' : ''}\\n\\n_Proceeding to Technical Review\\._` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `✅ AI ANALYSIS COMPLETE\n\n🔖 Reference: ${$json.reference_number}\n📊 Completeness: ${$json.analysis?.completeness_score || 0}%\n🎯 Win Probability: ${$json.analysis?.win_probability || 0}%\n⚠️ Risk Score: ${$json.analysis?.risk_score || 0}%${$json.used_retry ? '\\n\\n🔄 Note: Used retry attempt' : ''}\n\n➡️ Proceeding to Technical Review.` }}",
+        "additionalFields": {}
       },
       "id": "telegram-analysis-complete",
       "name": "Notify: Analysis Complete",

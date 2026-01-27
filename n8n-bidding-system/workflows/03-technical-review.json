@@ -1,5 +1,6 @@
 {
   "name": "03 - Technical Review Workflow",
+  "active": true,
   "nodes": [
     {
       "parameters": {
@@ -124,34 +125,32 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $('Get Technical Reviewer').first().json.telegram_chat_id }}",
-        "text": "={{ `\\uD83D\\uDCCB *Technical Review Required*\\n\\n*Bid:* ${$('Get Bid Details').first().json.reference_number}\\n*Title:* ${$('Get Bid Details').first().json.title.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Client:* ${$('Get Bid Details').first().json.client_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Value:* ${$('Get Bid Details').first().json.estimated_value ? '$' + Number($('Get Bid Details').first().json.estimated_value).toLocaleString() : 'Not specified'}\\n*Deadline:* ${new Date($('Get Bid Details').first().json.submission_deadline).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}\\n\\n*AI Analysis:*\\n\\u2022 Completeness: ${$('Get Bid Details').first().json.completeness_score || 'N/A'}%\\n\\u2022 Win Probability: ${$('Get Bid Details').first().json.win_probability_score || 'N/A'}%\\n\\u2022 Risk Score: ${$('Get Bid Details').first().json.risk_score || 'N/A'}%\\n\\n*SLA:* 48 hours \\(Due: ${new Date($('Create Review Record').first().json.due_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\\)\\n\\nPlease review and approve, request revision, or reject\\.` }}",
+        "text": "={{ `📋 TECHNICAL REVIEW REQUIRED\n\n🔖 Bid: ${$('Get Bid Details').first().json.reference_number}\n📝 Title: ${$('Get Bid Details').first().json.title}\n🏢 Client: ${$('Get Bid Details').first().json.client_name}\n💰 Value: ${$('Get Bid Details').first().json.estimated_value ? '$' + Number($('Get Bid Details').first().json.estimated_value).toLocaleString() : 'Not specified'}\n📅 Deadline: ${new Date($('Get Bid Details').first().json.submission_deadline).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}\n\n📊 AI ANALYSIS:\n• Completeness: ${$('Get Bid Details').first().json.completeness_score || 'N/A'}%\n• Win Probability: ${$('Get Bid Details').first().json.win_probability_score || 'N/A'}%\n• Risk Score: ${$('Get Bid Details').first().json.risk_score || 'N/A'}%\n\n⏰ SLA: 48 hours (Due: ${new Date($('Create Review Record').first().json.due_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })})\n\nPlease review and respond below.` }}",
         "replyMarkup": {
           "inline_keyboard": [
             [
               {
-                "text": "Approve",
+                "text": "✅ Approve",
                 "callback_data": "={{ `approve_${$('Get Bid Details').first().json.id}_tech` }}"
               },
               {
-                "text": "Revision",
+                "text": "🔄 Revision",
                 "callback_data": "={{ `revision_${$('Get Bid Details').first().json.id}_tech` }}"
               },
               {
-                "text": "Reject",
+                "text": "❌ Reject",
                 "callback_data": "={{ `reject_${$('Get Bid Details').first().json.id}_tech` }}"
               }
             ],
             [
               {
-                "text": "View Details",
+                "text": "🔗 View Details",
                 "url": "={{ $env.BID_PORTAL_URL || 'https://bids.example.com' }}/bid/{{ $('Get Bid Details').first().json.id }}"
               }
             ]
           ]
         },
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "additionalFields": {}
       },
       "id": "telegram-send-review",
       "name": "Send Review Request",
@@ -209,10 +208,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_ESCALATION_GROUP }}",
-        "text": "={{ `\\u26A0\\uFE0F *No Technical Reviewer Available*\\n\\n*Bid:* ${$('Get Bid Details').first().json.reference_number}\\n*Title:* ${$('Get Bid Details').first().json.title.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n\\nNo active technical reviewers found\\. Please assign manually\\.` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `⚠️ NO TECHNICAL REVIEWER AVAILABLE\n\n🔖 Bid: ${$('Get Bid Details').first().json.reference_number}\n📝 Title: ${$('Get Bid Details').first().json.title}\n\nNo active technical reviewers found. Please assign manually.` }}",
+        "additionalFields": {}
       },
       "id": "telegram-no-reviewer",
       "name": "Alert: No Reviewer",

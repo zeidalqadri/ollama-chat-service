@@ -230,10 +230,8 @@
         "operation": "editMessageText",
         "chatId": "={{ $('Parse Callback Data').first().json.chat_id }}",
         "messageId": "={{ $('Parse Callback Data').first().json.message_id }}",
-        "text": "={{ `\\u2705 *Review Completed*\\n\\n*Decision:* APPROVED\\n*By:* ${$('Get Reviewer Info').first().json.name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*At:* ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }).replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `✅ REVIEW COMPLETED\n\nDecision: APPROVED\nBy: ${$('Get Reviewer Info').first().json.name}\nAt: ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}` }}",
+        "additionalFields": {}
       },
       "id": "telegram-edit-message",
       "name": "Edit Original Message",
@@ -383,10 +381,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_WINS_GROUP }}",
-        "text": "={{ `\\uD83C\\uDF89 *Bid Approved for Submission\\!*\\n\\nBid ${$('Parse Callback Data').first().json.bid_id} has been approved and is ready for client submission\\.` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `🎉 BID APPROVED FOR SUBMISSION!\n\nBid ${$('Parse Callback Data').first().json.bid_id} has been approved and is ready for client submission.` }}",
+        "additionalFields": {}
       },
       "id": "telegram-celebrate",
       "name": "Announce Approval",
@@ -502,10 +498,8 @@
         "operation": "editMessageText",
         "chatId": "={{ $('Process Reason').first().json.chat_id }}",
         "messageId": "={{ $('Process Reason').first().json.message_id }}",
-        "text": "={{ `${$('Process Reason').first().json.decision === 'REVISION_REQUESTED' ? '\\u270F\\uFE0F *Revision Requested*' : '\\u274C *Rejected*'}\\n\\n*By:* ${$('Process Reason').first().json.reviewer_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Reason:* ${$('Process Reason').first().json.reason.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*At:* ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }).replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `${$('Process Reason').first().json.decision === 'REVISION_REQUESTED' ? '✏️ REVISION REQUESTED' : '❌ REJECTED'}\n\nBy: ${$('Process Reason').first().json.reviewer_name}\nReason: ${$('Process Reason').first().json.reason}\nAt: ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}` }}",
+        "additionalFields": {}
       },
       "id": "telegram-edit-with-reason",
       "name": "Edit with Reason",
@@ -523,10 +517,8 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $('Process Reason').first().json.chat_id }}",
-        "text": "={{ `\\u2705 Decision recorded\\. ${$('Process Reason').first().json.decision === 'REVISION_REQUESTED' ? 'The bid submitter will be notified of the required changes\\.' : 'The bid has been rejected\\.'}` }}",
-        "additionalFields": {
-          "parse_mode": "MarkdownV2"
-        }
+        "text": "={{ `✅ Decision recorded. ${$('Process Reason').first().json.decision === 'REVISION_REQUESTED' ? 'The bid submitter will be notified of the required changes.' : 'The bid has been rejected.'}` }}",
+        "additionalFields": {}
       },
       "id": "telegram-confirm-reason",
       "name": "Confirm Decision",
