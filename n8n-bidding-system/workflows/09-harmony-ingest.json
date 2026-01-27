@@ -1,0 +1,63 @@
+{
+  "name": "09 - Harmony Ingest",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "harmony/ingest",
+        "httpMethod": "POST",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "harmony-ingest-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst validSources = ['smartgep', 'eperolehan', 'mytender', 'manual'];\n\nif (!body.source || !validSources.includes(body.source.toLowerCase())) {\n  throw new Error('Invalid source');\n}\nif (!body.tenders || !Array.isArray(body.tenders) || body.tenders.length === 0) {\n  throw new Error('Invalid tenders array');\n}\n\nreturn body.tenders.map(t => ({\n  json: {\n    source: body.source.toLowerCase(),\n    job_id: body.job_id || 'manual-' + Date.now(),\n    source_tender_id: t.tender_id || t.reference || t.id,\n    source_url: t.source_url || t.url || null,\n    raw_data: JSON.stringify(t),\n    scraped_at: new Date().toISOString()\n  }\n}));"
+      },
+      "id": "validate",
+      "name": "Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO raw_tenders (source, source_tender_id, source_url, job_id, raw_data, scraped_at, status) VALUES ('{{ $json.source }}', '{{ $json.source_tender_id }}', {{ $json.source_url ? \"'\" + $json.source_url + \"'\" : 'NULL' }}, '{{ $json.job_id }}', '{{ $json.raw_data }}'::jsonb, '{{ $json.scraped_at }}'::timestamptz, 'pending') ON CONFLICT (source, source_tender_id) DO UPDATE SET raw_data = EXCLUDED.raw_data, scraped_at = EXCLUDED.scraped_at, updated_at = NOW() RETURNING id::text, source_tender_id, (xmax = 0) as is_new",
+        "options": {}
+      },
+      "id": "store",
+      "name": "Store",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 300],
+      "credentials": {"postgres": {"id": "postgres-bidding", "name": "Postgres Bidding DB"}}
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const items = $input.all();\nreturn [{ json: { success: true, processed: items.length, new_tenders: items.filter(i => i.json.is_new).length, ids: items.map(i => ({ id: i.json.id, tender: i.json.source_tender_id, is_new: i.json.is_new })) } }];"
+      },
+      "id": "aggregate",
+      "name": "Aggregate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {"main": [[{"node": "Validate", "type": "main", "index": 0}]]},
+    "Validate": {"main": [[{"node": "Store", "type": "main", "index": 0}]]},
+    "Store": {"main": [[{"node": "Aggregate", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "saveManualExecutions": true},
+  "staticData": null,
+  "tags": [{"name": "harmony-pipeline"}],
+  "triggerCount": 1,
+  "versionId": "1.2.0"
+}

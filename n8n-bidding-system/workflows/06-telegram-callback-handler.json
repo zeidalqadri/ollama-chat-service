@@ -1,0 +1,804 @@
+{
+  "name": "06 - Telegram Callback Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["callback_query", "message"]
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-callback",
+              "leftValue": "={{ !!$json.callback_query }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-callback",
+      "name": "Is Callback Query?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse callback_data format: action_bidId_reviewType\nconst callbackData = $json.callback_query.data;\nconst parts = callbackData.split('_');\n\nif (parts.length < 3) {\n  throw new Error(`Invalid callback_data format: ${callbackData}`);\n}\n\nconst action = parts[0]; // approve, revision, reject\nconst bidId = parts[1]; // UUID\nconst reviewType = parts[2]; // tech, comm, mgmt\n\n// Map short codes to full review types\nconst reviewTypeMap = {\n  'tech': 'TECHNICAL',\n  'comm': 'COMMERCIAL',\n  'mgmt': 'MANAGEMENT'\n};\n\nconst fullReviewType = reviewTypeMap[reviewType];\nif (!fullReviewType) {\n  throw new Error(`Invalid review type: ${reviewType}`);\n}\n\n// Map actions to decisions\nconst decisionMap = {\n  'approve': 'APPROVED',\n  'revision': 'REVISION_REQUESTED',\n  'reject': 'REJECTED'\n};\n\nconst decision = decisionMap[action];\nif (!decision) {\n  throw new Error(`Invalid action: ${action}`);\n}\n\nreturn [{\n  json: {\n    callback_id: $json.callback_query.id,\n    action: action,\n    decision: decision,\n    bid_id: bidId,\n    review_type: fullReviewType,\n    user_id: $json.callback_query.from.id,\n    username: $json.callback_query.from.username,\n    first_name: $json.callback_query.from.first_name,\n    message_id: $json.callback_query.message.message_id,\n    chat_id: $json.callback_query.message.chat.id,\n    needs_reason: action !== 'approve' // Revision and reject need reasons\n  }\n}];"
+      },
+      "id": "code-parse-callback",
+      "name": "Parse Callback Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 200]
+    },
+    {
+      "parameters": {
+        "operation": "answerCallbackQuery",
+        "queryId": "={{ $json.callback_id }}",
+        "text": "={{ $json.action === 'approve' ? 'Processing approval...' : $json.action === 'revision' ? 'Processing revision request...' : 'Processing rejection...' }}",
+        "additionalFields": {
+          "showAlert": false
+        }
+      },
+      "id": "telegram-answer-callback",
+      "name": "Answer Callback",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, email, telegram_username\nFROM reviewers\nWHERE telegram_chat_id = $1",
+        "options": {
+          "queryReplacement": "={{ [$('Parse Callback Data').first().json.user_id] }}"
+        }
+      },
+      "id": "postgres-get-reviewer",
+      "name": "Get Reviewer Info",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1120, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-needs-reason",
+              "leftValue": "={{ $('Parse Callback Data').first().json.needs_reason }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-needs-reason",
+      "name": "Needs Reason?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversation_state (chat_id, user_id, state_type, context_json, expires_at)\nVALUES ($1, $2, $3, $4, NOW() + INTERVAL '1 hour')\nON CONFLICT (chat_id, user_id) DO UPDATE SET\n  state_type = $3,\n  context_json = $4,\n  expires_at = NOW() + INTERVAL '1 hour'",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Parse Callback Data').first().json.chat_id,\n  $('Parse Callback Data').first().json.user_id,\n  $('Parse Callback Data').first().json.action === 'revision' ? 'awaiting_revision_reason' : 'awaiting_rejection_reason',\n  JSON.stringify({\n    bid_id: $('Parse Callback Data').first().json.bid_id,\n    review_type: $('Parse Callback Data').first().json.review_type,\n    decision: $('Parse Callback Data').first().json.decision,\n    message_id: $('Parse Callback Data').first().json.message_id,\n    reviewer_id: $('Get Reviewer Info').first().json.id,\n    reviewer_name: $('Get Reviewer Info').first().json.name\n  })\n] }}"
+        }
+      },
+      "id": "postgres-set-state",
+      "name": "Set Conversation State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1560, 100],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $('Parse Callback Data').first().json.chat_id }}",
+        "text": "={{ $('Parse Callback Data').first().json.action === 'revision' ? 'Please provide the reason for requesting revision. Your next message will be recorded as the revision notes.' : 'Please provide the reason for rejection. Your next message will be recorded as the rejection reason.' }}",
+        "replyMarkup": {
+          "force_reply": true,
+          "input_field_placeholder": "={{ $('Parse Callback Data').first().json.action === 'revision' ? 'Enter revision notes...' : 'Enter rejection reason...' }}"
+        },
+        "additionalFields": {}
+      },
+      "id": "telegram-ask-reason",
+      "name": "Ask for Reason",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1780, 100],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE reviews SET\n  decision = $1,\n  decision_at = NOW(),\n  decision_reason = 'Approved'\nWHERE bid_id = $2 AND review_type = $3\nRETURNING id, bid_id",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Parse Callback Data').first().json.decision,\n  $('Parse Callback Data').first().json.bid_id,\n  $('Parse Callback Data').first().json.review_type\n] }}"
+        }
+      },
+      "id": "postgres-update-review",
+      "name": "Update Review Decision",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1560, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO approval_decisions (\n  review_id, bid_id, reviewer_id, reviewer_name, reviewer_telegram_username,\n  decision, reason, telegram_callback_id, telegram_message_id\n) VALUES (\n  $1, $2, $3, $4, $5, $6, 'Approved', $7, $8\n)",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.id,\n  $json.bid_id,\n  $('Get Reviewer Info').first().json.id,\n  $('Get Reviewer Info').first().json.name,\n  $('Get Reviewer Info').first().json.telegram_username,\n  $('Parse Callback Data').first().json.decision,\n  $('Parse Callback Data').first().json.callback_id,\n  $('Parse Callback Data').first().json.message_id\n] }}"
+        }
+      },
+      "id": "postgres-log-decision",
+      "name": "Log Decision",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1780, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (\n  entity_type, entity_id, action,\n  actor_type, actor_id, actor_name, new_value, source\n) VALUES (\n  'review', $1, 'decision_made',\n  'user', $2, $3, $4, 'telegram'\n)",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Update Review Decision').first().json.id,\n  $('Get Reviewer Info').first().json.id,\n  $('Get Reviewer Info').first().json.name,\n  JSON.stringify({\n    decision: $('Parse Callback Data').first().json.decision,\n    review_type: $('Parse Callback Data').first().json.review_type,\n    bid_id: $('Parse Callback Data').first().json.bid_id\n  })\n] }}"
+        }
+      },
+      "id": "postgres-audit",
+      "name": "Log to Audit",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2000, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Parse Callback Data').first().json.chat_id }}",
+        "messageId": "={{ $('Parse Callback Data').first().json.message_id }}",
+        "text": "={{ `\\u2705 *Review Completed*\\n\\n*Decision:* APPROVED\\n*By:* ${$('Get Reviewer Info').first().json.name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*At:* ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }).replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-edit-message",
+      "name": "Edit Original Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2220, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Parse Callback Data').first().json.review_type }}",
+                    "rightValue": "TECHNICAL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Technical"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Parse Callback Data').first().json.review_type }}",
+                    "rightValue": "COMMERCIAL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Commercial"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Parse Callback Data').first().json.review_type }}",
+                    "rightValue": "MANAGEMENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Management"
+            }
+          ]
+        }
+      },
+      "id": "switch-next-stage",
+      "name": "Route to Next Stage",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [2440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE_URL }}/webhook/bid/commercial-review",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ bid_id: $('Parse Callback Data').first().json.bid_id }) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "http-trigger-commercial",
+      "name": "Trigger Commercial Review",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2660, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE_URL }}/webhook/bid/management-approval",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ bid_id: $('Parse Callback Data').first().json.bid_id }) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "http-trigger-management",
+      "name": "Trigger Management Approval",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2660, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE bids SET\n  status = 'APPROVED_TO_SUBMIT',\n  updated_at = NOW()\nWHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ [$('Parse Callback Data').first().json.bid_id] }}"
+        }
+      },
+      "id": "postgres-final-approval",
+      "name": "Mark Approved to Submit",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2660, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_WINS_GROUP }}",
+        "text": "={{ `\\uD83C\\uDF89 *Bid Approved for Submission\\!*\\n\\nBid ${$('Parse Callback Data').first().json.bid_id} has been approved and is ready for client submission\\.` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-celebrate",
+      "name": "Announce Approval",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2880, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT state_type, context_json\nFROM conversation_state\nWHERE chat_id = $1 AND user_id = $2\nAND expires_at > NOW()",
+        "options": {
+          "queryReplacement": "={{ [$json.message.chat.id, $json.message.from.id] }}"
+        }
+      },
+      "id": "postgres-check-state",
+      "name": "Check Conversation State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-state",
+              "leftValue": "={{ $json.state_type }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-has-state",
+      "name": "Has Pending State?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process the reason message with stored context\nconst state = $('Check Conversation State').first().json;\nconst context = JSON.parse(state.context_json);\nconst reason = $('Telegram Trigger').first().json.message.text;\n\nreturn [{\n  json: {\n    state_type: state.state_type,\n    reason: reason.trim(),\n    bid_id: context.bid_id,\n    review_type: context.review_type,\n    decision: context.decision,\n    message_id: context.message_id,\n    reviewer_id: context.reviewer_id,\n    reviewer_name: context.reviewer_name,\n    chat_id: $('Telegram Trigger').first().json.message.chat.id,\n    user_id: $('Telegram Trigger').first().json.message.from.id\n  }\n}];"
+      },
+      "id": "code-process-reason",
+      "name": "Process Reason",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE reviews SET\n  decision = $1,\n  decision_at = NOW(),\n  decision_reason = $2,\n  revision_count = CASE WHEN $1 = 'REVISION_REQUESTED' THEN revision_count + 1 ELSE revision_count END\nWHERE bid_id = $3 AND review_type = $4\nRETURNING id",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.decision,\n  $json.reason,\n  $json.bid_id,\n  $json.review_type\n] }}"
+        }
+      },
+      "id": "postgres-update-with-reason",
+      "name": "Update Review with Reason",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM conversation_state\nWHERE chat_id = $1 AND user_id = $2",
+        "options": {
+          "queryReplacement": "={{ [$('Process Reason').first().json.chat_id, $('Process Reason').first().json.user_id] }}"
+        }
+      },
+      "id": "postgres-clear-state",
+      "name": "Clear State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1560, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Process Reason').first().json.chat_id }}",
+        "messageId": "={{ $('Process Reason').first().json.message_id }}",
+        "text": "={{ `${$('Process Reason').first().json.decision === 'REVISION_REQUESTED' ? '\\u270F\\uFE0F *Revision Requested*' : '\\u274C *Rejected*'}\\n\\n*By:* ${$('Process Reason').first().json.reviewer_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Reason:* ${$('Process Reason').first().json.reason.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*At:* ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }).replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-edit-with-reason",
+      "name": "Edit with Reason",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1780, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $('Process Reason').first().json.chat_id }}",
+        "text": "={{ `\\u2705 Decision recorded\\. ${$('Process Reason').first().json.decision === 'REVISION_REQUESTED' ? 'The bid submitter will be notified of the required changes\\.' : 'The bid has been rejected\\.'}` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-confirm-reason",
+      "name": "Confirm Decision",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2000, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Is Callback Query?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Callback Query?": {
+      "main": [
+        [
+          {
+            "node": "Parse Callback Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Conversation State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Callback Data": {
+      "main": [
+        [
+          {
+            "node": "Answer Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Callback": {
+      "main": [
+        [
+          {
+            "node": "Get Reviewer Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Reviewer Info": {
+      "main": [
+        [
+          {
+            "node": "Needs Reason?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Reason?": {
+      "main": [
+        [
+          {
+            "node": "Update Review Decision",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Conversation State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Conversation State": {
+      "main": [
+        [
+          {
+            "node": "Ask for Reason",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Review Decision": {
+      "main": [
+        [
+          {
+            "node": "Log Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Decision": {
+      "main": [
+        [
+          {
+            "node": "Log to Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Audit": {
+      "main": [
+        [
+          {
+            "node": "Edit Original Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Original Message": {
+      "main": [
+        [
+          {
+            "node": "Route to Next Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route to Next Stage": {
+      "main": [
+        [
+          {
+            "node": "Trigger Commercial Review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Trigger Management Approval",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Approved to Submit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Approved to Submit": {
+      "main": [
+        [
+          {
+            "node": "Announce Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Conversation State": {
+      "main": [
+        [
+          {
+            "node": "Has Pending State?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Pending State?": {
+      "main": [
+        [
+          {
+            "node": "Process Reason",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Process Reason": {
+      "main": [
+        [
+          {
+            "node": "Update Review with Reason",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Review with Reason": {
+      "main": [
+        [
+          {
+            "node": "Clear State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear State": {
+      "main": [
+        [
+          {
+            "node": "Edit with Reason",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit with Reason": {
+      "main": [
+        [
+          {
+            "node": "Confirm Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "bidding-system"
+    },
+    {
+      "name": "telegram"
+    },
+    {
+      "name": "callback"
+    }
+  ],
+  "triggerCount": 1,
+  "versionId": "1.0.0"
+}
