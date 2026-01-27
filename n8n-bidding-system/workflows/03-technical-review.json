@@ -160,8 +160,8 @@
       "position": [1340, 200],
       "credentials": {
         "telegramApi": {
-          "id": "telegram-bidding-bot",
-          "name": "Bidding Bot"
+          "id": "tenderbirubot",
+          "name": "tenderbirubot"
         }
       }
     },
@@ -221,8 +221,8 @@
       "position": [1120, 480],
       "credentials": {
         "telegramApi": {
-          "id": "telegram-bidding-bot",
-          "name": "Bidding Bot"
+          "id": "tenderbirubot",
+          "name": "tenderbirubot"
         }
       }
     }
