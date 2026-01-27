@@ -18,6 +18,7 @@ const state = {
     authenticated: false,
     username: null,
     models: [],
+    modelsMeta: [],
     selectedModel: null,
     visionModels: [],
     translationModels: [],
@@ -224,6 +225,7 @@ async function loadModels() {
         if (response.ok) {
             const data = await response.json();
             state.models = data.models;
+            state.modelsMeta = data.models_meta || [];
             state.visionModels = data.vision_models;
             state.translationModels = data.translation_models || [];
             state.selectedModel = data.default;
@@ -521,7 +523,18 @@ function populateModels() {
     state.models.forEach(model => {
         const option = document.createElement('option');
         option.value = model;
-        option.textContent = model;
+        // Find metadata for this model
+        const meta = state.modelsMeta.find(m => m.id === model);
+        if (meta && meta.origin) {
+            // Show: 🇺🇸 gemma2:9b → analyze, review
+            const stages = meta.tender_stages?.length > 0
+                ? ` → ${meta.tender_stages.join(', ')}`
+                : '';
+            option.textContent = `${meta.origin} ${model}${stages}`;
+            option.title = meta.description || '';
+        } else {
+            option.textContent = model;
+        }
         if (model === state.selectedModel) {
             option.selected = true;
         }
@@ -529,6 +542,21 @@ function populateModels() {
     });
     updateVisionBadge();
     updateTranslationBadge();
+    updateModelDescription();
+}
+
+function updateModelDescription() {
+    // Update model info display if element exists
+    const infoEl = document.getElementById('model-info');
+    if (!infoEl) return;
+
+    const meta = state.modelsMeta.find(m => m.id === state.selectedModel);
+    if (meta && meta.description) {
+        infoEl.textContent = `${meta.origin} ${meta.description}`;
+        infoEl.classList.remove('hidden');
+    } else {
+        infoEl.classList.add('hidden');
+    }
 }
 
 function updateVisionBadge() {
@@ -1147,6 +1175,7 @@ elements.modelSelect.addEventListener('change', () => {
     state.selectedModel = elements.modelSelect.value;
     updateVisionBadge();
     updateTranslationBadge();
+    updateModelDescription();
 });
 
 // Image upload
