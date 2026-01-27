@@ -99,8 +99,8 @@
       "position": [900, 400],
       "credentials": {
         "telegramApi": {
-          "id": "telegram-bidding-bot",
-          "name": "Bidding Bot"
+          "id": "tenderbirubot",
+          "name": "tenderbirubot"
         }
       },
       "continueOnFail": true

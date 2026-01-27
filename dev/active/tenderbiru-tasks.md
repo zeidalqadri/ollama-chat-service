@@ -25,22 +25,20 @@
 
 ## In Progress
 
-None currently - ready for Telegram setup
+None currently
+
+## Completed Tasks (Session 7 continued)
+
+- [x] **Set up Telegram Bot credentials** ✅
+  - Bot: @TenderBiruBot (8215108588)
+  - Credential: `tenderbirubot` in n8n database
+  - Groups configured:
+    - Intake: `-1003619116505`
+    - Escalation: `-1003729943661`
+    - Wins: `-1003786299679`
+  - Environment variables added to `/opt/alumist/config/.env`
 
 ## Pending Tasks
-
-### High Priority
-- [ ] **Set up Telegram Bot credentials**
-  - Create bot via @BotFather on Telegram
-  - Get bot token
-  - Create Telegram groups (Intake, Escalation, Wins)
-  - Get chat IDs for each group
-  - Add `Bidding Bot` credential in n8n
-  - Add environment variables to `/opt/alumist/config/.env`:
-    - `TENDERBIRU_TELEGRAM_BOT_TOKEN`
-    - `TENDERBIRU_TELEGRAM_INTAKE_GROUP`
-    - `TENDERBIRU_TELEGRAM_ESCALATION_GROUP`
-    - `TENDERBIRU_TELEGRAM_WINS_GROUP`
 
 ### Medium Priority
 - [ ] **Set up Scheduled Reports**
