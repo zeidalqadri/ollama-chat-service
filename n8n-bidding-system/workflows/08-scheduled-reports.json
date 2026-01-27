@@ -1,0 +1,459 @@
+{
+  "name": "08 - Scheduled Reports & Escalations",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "schedule-daily",
+      "name": "Daily 8 AM (Weekdays)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  COUNT(*) as total_active,\n  COUNT(*) FILTER (WHERE status = 'SUBMITTED') as submitted,\n  COUNT(*) FILTER (WHERE status = 'NEEDS_INFO') as needs_info,\n  COUNT(*) FILTER (WHERE status = 'TECHNICAL_REVIEW') as tech_review,\n  COUNT(*) FILTER (WHERE status = 'COMMERCIAL_REVIEW') as comm_review,\n  COUNT(*) FILTER (WHERE status = 'MGMT_APPROVAL') as mgmt_approval,\n  COUNT(*) FILTER (WHERE status = 'APPROVED_TO_SUBMIT') as approved,\n  SUM(estimated_value) as total_value,\n  AVG(completeness_score) as avg_completeness,\n  AVG(win_probability_score) as avg_win_prob\nFROM bids\nWHERE status NOT IN ('WON', 'LOST', 'NO_DECISION', 'ARCHIVED')",
+        "options": {}
+      },
+      "id": "postgres-summary",
+      "name": "Get Active Bids Summary",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  b.id, b.reference_number, b.title, b.client_name,\n  b.submission_deadline,\n  EXTRACT(DAY FROM (b.submission_deadline - NOW())) as days_remaining,\n  b.status, b.priority, b.estimated_value\nFROM bids b\nWHERE b.submission_deadline BETWEEN NOW() AND NOW() + INTERVAL '3 days'\nAND b.status NOT IN ('WON', 'LOST', 'NO_DECISION', 'ARCHIVED', 'SUBMITTED_TO_CLIENT')\nORDER BY b.submission_deadline ASC\nLIMIT 10",
+        "options": {}
+      },
+      "id": "postgres-deadlines",
+      "name": "Get Upcoming Deadlines",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  r.id, r.bid_id, r.review_type, r.assigned_at, r.due_at,\n  EXTRACT(EPOCH FROM (NOW() - r.due_at))/3600 as hours_overdue,\n  b.reference_number, b.title, b.client_name, b.priority,\n  rv.name as reviewer_name, rv.telegram_chat_id\nFROM reviews r\nJOIN bids b ON r.bid_id = b.id\nJOIN reviewers rv ON r.assigned_to = rv.id\nWHERE r.decision = 'PENDING'\nAND r.due_at < NOW()\nAND NOT r.sla_breached\nORDER BY r.due_at ASC",
+        "options": {}
+      },
+      "id": "postgres-sla-breaches",
+      "name": "Get SLA Breaches",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE reviews SET sla_breached = TRUE, escalated_at = NOW()\nWHERE decision = 'PENDING' AND due_at < NOW() AND NOT sla_breached\nRETURNING id",
+        "options": {}
+      },
+      "id": "postgres-mark-breached",
+      "name": "Mark SLA Breached",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build daily summary message\nconst summary = $('Get Active Bids Summary').first().json;\nconst deadlines = $('Get Upcoming Deadlines').all();\nconst breaches = $('Get SLA Breaches').all();\n\nconst today = new Date().toLocaleDateString('en-US', {\n  weekday: 'long',\n  year: 'numeric',\n  month: 'long',\n  day: 'numeric'\n});\n\nlet message = `\\uD83D\\uDCCA *Daily Bidding Report*\\n_${today}_\\n\\n`;\n\n// Summary section\nmessage += `*Pipeline Summary:*\\n`;\nmessage += `\\u2022 Total Active: ${summary.total_active || 0}\\n`;\nmessage += `\\u2022 In Review: ${(summary.tech_review || 0) + (summary.comm_review || 0) + (summary.mgmt_approval || 0)}\\n`;\nmessage += `\\u2022 Needs Info: ${summary.needs_info || 0}\\n`;\nmessage += `\\u2022 Ready to Submit: ${summary.approved || 0}\\n`;\nmessage += `\\u2022 Total Pipeline Value: $${summary.total_value ? Number(summary.total_value).toLocaleString() : '0'}\\n`;\nmessage += `\\u2022 Avg Win Probability: ${summary.avg_win_prob ? Math.round(summary.avg_win_prob) : 'N/A'}%\\n\\n`;\n\n// Deadline warnings\nif (deadlines.length > 0) {\n  message += `\\u26A0\\uFE0F *Upcoming Deadlines (3 days):*\\n`;\n  for (const d of deadlines.slice(0, 5)) {\n    const daysText = d.json.days_remaining < 1 ? 'TODAY!' : `${Math.ceil(d.json.days_remaining)} days`;\n    message += `\\u2022 ${d.json.reference_number}: ${daysText} - ${d.json.client_name}\\n`;\n  }\n  message += `\\n`;\n}\n\n// SLA breaches\nif (breaches.length > 0) {\n  message += `\\uD83D\\uDEA8 *SLA Breaches (${breaches.length}):*\\n`;\n  for (const b of breaches.slice(0, 5)) {\n    message += `\\u2022 ${b.json.reference_number} (${b.json.review_type}) - ${Math.round(b.json.hours_overdue)}h overdue - @${b.json.reviewer_name}\\n`;\n  }\n  message += `\\n`;\n}\n\n// Status counts\nmessage += `*By Review Stage:*\\n`;\nmessage += `\\u2022 Technical: ${summary.tech_review || 0}\\n`;\nmessage += `\\u2022 Commercial: ${summary.comm_review || 0}\\n`;\nmessage += `\\u2022 Management: ${summary.mgmt_approval || 0}\\n`;\n\nreturn [{ json: { message: message, has_breaches: breaches.length > 0, breach_count: breaches.length } }];"
+      },
+      "id": "code-build-report",
+      "name": "Build Daily Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
+        "text": "={{ $json.message.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&').replace(/\\\\\\*/g, '*').replace(/\\\\_/g, '_') }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-daily-report",
+      "name": "Send Daily Report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1120, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-breaches",
+              "leftValue": "={{ $('Build Daily Report').first().json.has_breaches }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-has-breaches",
+      "name": "Has SLA Breaches?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_ESCALATION_GROUP }}",
+        "text": "={{ `\\uD83D\\uDEA8 *SLA BREACH ALERT*\\n\\n${$('Build Daily Report').first().json.breach_count} review\\(s\\) have exceeded their SLA deadline\\.\\n\\nImmediate action required\\. See daily report for details\\.` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-escalation",
+      "name": "Send Escalation Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1560, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "schedule-weekly",
+      "name": "Weekly Monday 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 600]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  COUNT(*) FILTER (WHERE outcome_recorded_at >= NOW() - INTERVAL '7 days') as total_decided,\n  COUNT(*) FILTER (WHERE status = 'WON' AND outcome_recorded_at >= NOW() - INTERVAL '7 days') as won,\n  COUNT(*) FILTER (WHERE status = 'LOST' AND outcome_recorded_at >= NOW() - INTERVAL '7 days') as lost,\n  COUNT(*) FILTER (WHERE status = 'NO_DECISION' AND outcome_recorded_at >= NOW() - INTERVAL '7 days') as no_decision,\n  COALESCE(SUM(actual_contract_value) FILTER (WHERE status = 'WON' AND outcome_recorded_at >= NOW() - INTERVAL '7 days'), 0) as won_value,\n  COALESCE(SUM(estimated_value) FILTER (WHERE status = 'LOST' AND outcome_recorded_at >= NOW() - INTERVAL '7 days'), 0) as lost_value,\n  COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') as new_submissions,\n  ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'WON' AND outcome_recorded_at >= NOW() - INTERVAL '7 days') / \n    NULLIF(COUNT(*) FILTER (WHERE outcome_recorded_at >= NOW() - INTERVAL '7 days'), 0), 1) as win_rate\nFROM bids",
+        "options": {}
+      },
+      "id": "postgres-weekly-stats",
+      "name": "Get Weekly Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 600],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  rv.name,\n  COUNT(*) as reviews_completed,\n  COUNT(*) FILTER (WHERE ad.decision = 'APPROVED') as approved,\n  COUNT(*) FILTER (WHERE ad.decision = 'REJECTED') as rejected,\n  ROUND(AVG(EXTRACT(EPOCH FROM (ad.created_at - r.assigned_at))/3600), 1) as avg_response_hours\nFROM reviewers rv\nJOIN reviews r ON rv.id = r.assigned_to\nJOIN approval_decisions ad ON r.id = ad.review_id\nWHERE ad.created_at >= NOW() - INTERVAL '7 days'\nGROUP BY rv.id, rv.name\nORDER BY reviews_completed DESC\nLIMIT 10",
+        "options": {}
+      },
+      "id": "postgres-reviewer-stats",
+      "name": "Get Reviewer Performance",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 700],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build weekly analytics report\nconst stats = $('Get Weekly Stats').first().json;\nconst reviewers = $('Get Reviewer Performance').all();\n\nconst weekStart = new Date();\nweekStart.setDate(weekStart.getDate() - 7);\nconst weekEnd = new Date();\n\nlet message = `\\uD83D\\uDCC8 *Weekly Bidding Analytics*\\n`;\nmessage += `_${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}_\\n\\n`;\n\n// Win/Loss summary\nmessage += `*Outcomes This Week:*\\n`;\nmessage += `\\u2022 Won: ${stats.won || 0} ($${stats.won_value ? Number(stats.won_value).toLocaleString() : '0'})\\n`;\nmessage += `\\u2022 Lost: ${stats.lost || 0} ($${stats.lost_value ? Number(stats.lost_value).toLocaleString() : '0'})\\n`;\nmessage += `\\u2022 No Decision: ${stats.no_decision || 0}\\n`;\nmessage += `\\u2022 *Win Rate: ${stats.win_rate || 0}%*\\n\\n`;\n\n// Activity\nmessage += `*Activity:*\\n`;\nmessage += `\\u2022 New Submissions: ${stats.new_submissions || 0}\\n`;\nmessage += `\\u2022 Decisions Made: ${stats.total_decided || 0}\\n\\n`;\n\n// Reviewer leaderboard\nif (reviewers.length > 0) {\n  message += `*Reviewer Performance:*\\n`;\n  for (let i = 0; i < Math.min(reviewers.length, 5); i++) {\n    const r = reviewers[i].json;\n    const medal = i === 0 ? '\\uD83E\\uDD47' : i === 1 ? '\\uD83E\\uDD48' : i === 2 ? '\\uD83E\\uDD49' : '\\u2022';\n    message += `${medal} ${r.name}: ${r.reviews_completed} reviews (${r.avg_response_hours || 'N/A'}h avg)\\n`;\n  }\n}\n\nreturn [{ json: { message: message } }];"
+      },
+      "id": "code-weekly-report",
+      "name": "Build Weekly Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 650]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
+        "text": "={{ $json.message.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&').replace(/\\\\\\*/g, '*').replace(/\\\\_/g, '_') }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-weekly-report",
+      "name": "Send Weekly Report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 650],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO bid_analytics (\n  period_type, period_start, period_end,\n  total_bids, bids_won, bids_lost, bids_pending, bids_no_decision,\n  win_rate, total_bid_value, won_value, lost_value\n) VALUES (\n  'weekly',\n  (NOW() - INTERVAL '7 days')::date,\n  NOW()::date,\n  $1, $2, $3, $4, $5, $6, $7, $8, $9\n)\nON CONFLICT (period_type, period_start) DO UPDATE SET\n  bids_won = $2,\n  bids_lost = $3,\n  win_rate = $6,\n  won_value = $8,\n  lost_value = $9",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Get Weekly Stats').first().json.new_submissions || 0,\n  $('Get Weekly Stats').first().json.won || 0,\n  $('Get Weekly Stats').first().json.lost || 0,\n  0,\n  $('Get Weekly Stats').first().json.no_decision || 0,\n  $('Get Weekly Stats').first().json.win_rate || 0,\n  0,\n  $('Get Weekly Stats').first().json.won_value || 0,\n  $('Get Weekly Stats').first().json.lost_value || 0\n] }}"
+        }
+      },
+      "id": "postgres-store-analytics",
+      "name": "Store Weekly Analytics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1120, 650],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 8 AM (Weekdays)": {
+      "main": [
+        [
+          {
+            "node": "Get Active Bids Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Upcoming Deadlines",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get SLA Breaches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get SLA Breaches": {
+      "main": [
+        [
+          {
+            "node": "Mark SLA Breached",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Bids Summary": {
+      "main": [
+        [
+          {
+            "node": "Build Daily Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Upcoming Deadlines": {
+      "main": [
+        [
+          {
+            "node": "Build Daily Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark SLA Breached": {
+      "main": [
+        [
+          {
+            "node": "Build Daily Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily Report": {
+      "main": [
+        [
+          {
+            "node": "Send Daily Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Daily Report": {
+      "main": [
+        [
+          {
+            "node": "Has SLA Breaches?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has SLA Breaches?": {
+      "main": [
+        [
+          {
+            "node": "Send Escalation Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Weekly Monday 9 AM": {
+      "main": [
+        [
+          {
+            "node": "Get Weekly Stats",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Reviewer Performance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Weekly Stats": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Reviewer Performance": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly Report": {
+      "main": [
+        [
+          {
+            "node": "Send Weekly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Weekly Report": {
+      "main": [
+        [
+          {
+            "node": "Store Weekly Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow",
+    "timezone": "America/New_York"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "bidding-system"
+    },
+    {
+      "name": "reports"
+    },
+    {
+      "name": "scheduled"
+    }
+  ],
+  "triggerCount": 2,
+  "versionId": "1.0.0"
+}

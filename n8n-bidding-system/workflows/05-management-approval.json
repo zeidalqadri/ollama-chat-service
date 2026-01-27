@@ -1,0 +1,362 @@
+{
+  "name": "05 - Management Approval Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "bid/management-approval",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-mgmt-approval",
+      "name": "Webhook: Management Approval",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "bid-management-approval-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  b.*,\n  r_tech.decision as tech_decision,\n  r_tech.decision_reason as tech_reason,\n  rv_tech.name as tech_reviewer_name,\n  r_comm.decision as comm_decision,\n  r_comm.decision_reason as comm_reason,\n  rv_comm.name as comm_reviewer_name\nFROM bids b\nLEFT JOIN reviews r_tech ON b.id = r_tech.bid_id AND r_tech.review_type = 'TECHNICAL'\nLEFT JOIN reviewers rv_tech ON r_tech.assigned_to = rv_tech.id\nLEFT JOIN reviews r_comm ON b.id = r_comm.bid_id AND r_comm.review_type = 'COMMERCIAL'\nLEFT JOIN reviewers rv_comm ON r_comm.assigned_to = rv_comm.id\nWHERE b.id = $1",
+        "options": {
+          "queryReplacement": "={{ [$json.body.bid_id] }}"
+        }
+      },
+      "id": "postgres-get-bid",
+      "name": "Get Bid with All Reviews",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_URL || 'http://localhost:11434' }}/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: $env.ANALYSIS_MODEL || 'qwen3-coder:30b',\n  prompt: `You are a bid strategy advisor. Provide a final win probability assessment for executive approval.\\n\\nBID SUMMARY:\\n- Reference: ${$json.reference_number}\\n- Client: ${$json.client_name}\\n- Value: $${$json.estimated_value?.toLocaleString() || 'Not specified'}\\n- AI Completeness Score: ${$json.completeness_score || 'N/A'}%\\n- Original Win Probability: ${$json.win_probability_score || 'N/A'}%\\n- Risk Score: ${$json.risk_score || 'N/A'}%\\n\\nREVIEW STATUS:\\n- Technical Review: ${$json.tech_decision} by ${$json.tech_reviewer_name}\\n- Commercial Review: ${$json.comm_decision} by ${$json.comm_reviewer_name}\\n\\nProvide:\\n1. FINAL WIN PROBABILITY (0-100) considering all reviews\\n2. KEY SUCCESS FACTORS (3 max)\\n3. KEY RISKS (3 max)\\n4. GO/NO-GO RECOMMENDATION with brief rationale\\n\\nRespond in JSON format:\\n{\\n  \"final_win_probability\": <number>,\\n  \"success_factors\": [<strings>],\\n  \"key_risks\": [<strings>],\\n  \"recommendation\": \"GO\" or \"NO-GO\",\\n  \"rationale\": \"<brief explanation>\"\\n}`,\n  stream: false,\n  options: {\n    temperature: 0.3,\n    num_predict: 1000\n  }\n}) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "ollama-final-assessment",
+      "name": "AI Final Assessment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI final assessment\nconst rawResponse = $json.response || '{}';\nconst bid = $('Get Bid with All Reviews').first().json;\n\nlet assessment;\ntry {\n  const jsonMatch = rawResponse.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    assessment = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  assessment = {\n    final_win_probability: bid.win_probability_score || 50,\n    success_factors: ['Manual assessment recommended'],\n    key_risks: ['AI assessment incomplete'],\n    recommendation: 'REVIEW',\n    rationale: 'AI analysis could not be completed'\n  };\n}\n\nassessment.final_win_probability = Math.min(100, Math.max(0, parseInt(assessment.final_win_probability) || 50));\n\nreturn [{ json: { bid: bid, assessment: assessment } }];"
+      },
+      "id": "code-parse-assessment",
+      "name": "Parse Assessment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, telegram_chat_id, telegram_username, name, email\nFROM reviewers\nWHERE can_approve_management = TRUE\nAND is_active = TRUE\nORDER BY RANDOM()\nLIMIT 1",
+        "options": {}
+      },
+      "id": "postgres-get-approver",
+      "name": "Get Management Approver",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1120, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-approver",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-has-approver",
+      "name": "Approver Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO reviews (\n  bid_id, review_type, assigned_to, assigned_at, due_at, sla_hours\n) VALUES (\n  $1, 'MANAGEMENT', $2, NOW(), NOW() + INTERVAL '24 hours', 24\n)\nON CONFLICT (bid_id, review_type) DO UPDATE SET\n  assigned_to = $2,\n  assigned_at = NOW(),\n  due_at = NOW() + INTERVAL '24 hours',\n  decision = 'PENDING',\n  sla_breached = FALSE\nRETURNING id, due_at",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Parse Assessment').first().json.bid.id,\n  $('Get Management Approver').first().json.id\n] }}"
+        }
+      },
+      "id": "postgres-create-review",
+      "name": "Create Review Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1560, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE bids SET\n  status = 'MGMT_APPROVAL',\n  current_reviewer_id = $1,\n  updated_at = NOW()\nWHERE id = $2",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Get Management Approver').first().json.id,\n  $('Parse Assessment').first().json.bid.id\n] }}"
+        }
+      },
+      "id": "postgres-update-status",
+      "name": "Update Bid Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1560, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $('Get Management Approver').first().json.telegram_chat_id }}",
+        "text": "={{ `\\uD83C\\uDFC6 *Executive Approval Required*\\n\\n*Bid:* ${$('Parse Assessment').first().json.bid.reference_number}\\n*Title:* ${$('Parse Assessment').first().json.bid.title.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Client:* ${$('Parse Assessment').first().json.bid.client_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Value:* ${$('Parse Assessment').first().json.bid.estimated_value ? '$' + Number($('Parse Assessment').first().json.bid.estimated_value).toLocaleString() : 'Not specified'}\\n\\n*Review Chain:*\\n\\u2705 Technical: Approved by ${$('Parse Assessment').first().json.bid.tech_reviewer_name?.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&') || 'Unknown'}\\n\\u2705 Commercial: Approved by ${$('Parse Assessment').first().json.bid.comm_reviewer_name?.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&') || 'Unknown'}\\n\\n*AI Assessment:*\\n\\u2022 Win Probability: ${$('Parse Assessment').first().json.assessment.final_win_probability}%\\n\\u2022 Recommendation: ${$('Parse Assessment').first().json.assessment.recommendation}\\n\\n*Success Factors:*\\n${$('Parse Assessment').first().json.assessment.success_factors.map(f => '\\u2022 ' + f.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n*Key Risks:*\\n${$('Parse Assessment').first().json.assessment.key_risks.map(r => '\\u2022 ' + r.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n*SLA:* 24 hours\\n\\nThis is the final approval before client submission\\.` }}",
+        "replyMarkup": {
+          "inline_keyboard": [
+            [
+              {
+                "text": "Approve to Submit",
+                "callback_data": "={{ `approve_${$('Parse Assessment').first().json.bid.id}_mgmt` }}"
+              }
+            ],
+            [
+              {
+                "text": "Request Changes",
+                "callback_data": "={{ `revision_${$('Parse Assessment').first().json.bid.id}_mgmt` }}"
+              },
+              {
+                "text": "Reject",
+                "callback_data": "={{ `reject_${$('Parse Assessment').first().json.bid.id}_mgmt` }}"
+              }
+            ],
+            [
+              {
+                "text": "View Full Details",
+                "url": "={{ $env.BID_PORTAL_URL || 'https://bids.example.com' }}/bid/{{ $('Parse Assessment').first().json.bid.id }}"
+              }
+            ]
+          ]
+        },
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-send-approval",
+      "name": "Send Approval Request",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1780, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE reviews SET\n  notification_message_id = $1,\n  notification_chat_id = $2\nWHERE id = $3",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.message_id,\n  $json.chat.id,\n  $('Create Review Record').first().json.id\n] }}"
+        }
+      },
+      "id": "postgres-update-message",
+      "name": "Store Message ID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2000, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_ESCALATION_GROUP }}",
+        "text": "={{ `\\u26A0\\uFE0F *No Management Approver Available*\\n\\n*Bid:* ${$('Parse Assessment').first().json.bid.reference_number}\\n\\nNo active management approvers found\\. Please assign manually\\.` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-no-approver",
+      "name": "Alert: No Approver",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1560, 480],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook: Management Approval": {
+      "main": [
+        [
+          {
+            "node": "Get Bid with All Reviews",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Bid with All Reviews": {
+      "main": [
+        [
+          {
+            "node": "AI Final Assessment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Final Assessment": {
+      "main": [
+        [
+          {
+            "node": "Parse Assessment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Assessment": {
+      "main": [
+        [
+          {
+            "node": "Get Management Approver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Management Approver": {
+      "main": [
+        [
+          {
+            "node": "Approver Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approver Found?": {
+      "main": [
+        [
+          {
+            "node": "Create Review Record",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Bid Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert: No Approver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Review Record": {
+      "main": [
+        [
+          {
+            "node": "Send Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Store Message ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "bidding-system"
+    },
+    {
+      "name": "approval"
+    },
+    {
+      "name": "management"
+    }
+  ],
+  "triggerCount": 1,
+  "versionId": "1.0.0"
+}

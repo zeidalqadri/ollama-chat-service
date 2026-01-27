@@ -1,0 +1,280 @@
+{
+  "name": "01 - Bid Submission Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "bid/submit",
+        "httpMethod": "POST",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-intake",
+      "name": "Webhook: Bid Submit",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "bid-submit-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate incoming bid submission\nconst body = $input.first().json.body;\n\n// Required fields validation\nconst requiredFields = ['title', 'client_name', 'submission_deadline'];\nconst missingFields = [];\n\nfor (const field of requiredFields) {\n  if (!body[field] || body[field].toString().trim() === '') {\n    missingFields.push(field);\n  }\n}\n\nif (missingFields.length > 0) {\n  throw new Error(`Missing required fields: ${missingFields.join(', ')}`);\n}\n\n// Validate deadline is in the future\nconst deadline = new Date(body.submission_deadline);\nif (isNaN(deadline.getTime())) {\n  throw new Error('Invalid submission_deadline format. Use ISO 8601 format.');\n}\nif (deadline < new Date()) {\n  throw new Error('submission_deadline must be in the future');\n}\n\n// Validate estimated_value if provided\nif (body.estimated_value !== undefined) {\n  const value = parseFloat(body.estimated_value);\n  if (isNaN(value) || value < 0) {\n    throw new Error('estimated_value must be a positive number');\n  }\n}\n\n// Build validated bid object\nconst validatedBid = {\n  title: body.title.trim(),\n  client_name: body.client_name.trim(),\n  client_contact: body.client_contact?.trim() || null,\n  client_email: body.client_email?.trim() || null,\n  estimated_value: body.estimated_value ? parseFloat(body.estimated_value) : null,\n  currency: body.currency?.toUpperCase() || 'USD',\n  margin_percentage: body.margin_percentage ? parseFloat(body.margin_percentage) : null,\n  submission_deadline: deadline.toISOString(),\n  decision_expected_date: body.decision_expected_date ? new Date(body.decision_expected_date).toISOString() : null,\n  project_start_date: body.project_start_date ? new Date(body.project_start_date).toISOString() : null,\n  project_duration_days: body.project_duration_days ? parseInt(body.project_duration_days) : null,\n  priority: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(body.priority?.toUpperCase()) ? body.priority.toUpperCase() : 'MEDIUM',\n  document_urls: Array.isArray(body.document_urls) ? body.document_urls : (body.document_urls ? [body.document_urls] : []),\n  source: body.source || 'webhook',\n  tags: Array.isArray(body.tags) ? body.tags : [],\n  notes: body.notes?.trim() || null,\n  submitted_by: body.submitted_by || null\n};\n\nreturn [{ json: { validated: true, bid: validatedBid } }];"
+      },
+      "id": "code-validate",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO bids (\n  title, client_name, client_contact, client_email,\n  estimated_value, currency, margin_percentage,\n  submission_deadline, decision_expected_date,\n  project_start_date, project_duration_days,\n  priority, document_urls, source, tags, notes, submitted_by,\n  status\n) VALUES (\n  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'SUBMITTED'\n)\nRETURNING id, reference_number, status, created_at",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.bid.title,\n  $json.bid.client_name,\n  $json.bid.client_contact,\n  $json.bid.client_email,\n  $json.bid.estimated_value,\n  $json.bid.currency,\n  $json.bid.margin_percentage,\n  $json.bid.submission_deadline,\n  $json.bid.decision_expected_date,\n  $json.bid.project_start_date,\n  $json.bid.project_duration_days,\n  $json.bid.priority,\n  $json.bid.document_urls,\n  $json.bid.source,\n  $json.bid.tags,\n  $json.bid.notes,\n  $json.bid.submitted_by\n] }}"
+        }
+      },
+      "id": "postgres-insert",
+      "name": "Insert Bid",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (\n  entity_type, entity_id, action,\n  actor_type, new_value, source\n) VALUES (\n  'bid', $1, 'created',\n  'webhook',\n  $2,\n  'webhook'\n)",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.id,\n  JSON.stringify({\n    title: $('Validate Input').first().json.bid.title,\n    client_name: $('Validate Input').first().json.bid.client_name,\n    estimated_value: $('Validate Input').first().json.bid.estimated_value,\n    reference_number: $json.reference_number\n  })\n] }}"
+        }
+      },
+      "id": "postgres-audit",
+      "name": "Log to Audit",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE_URL }}/webhook/bid/analyze",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  bid_id: $('Insert Bid').first().json.id,\n  reference_number: $('Insert Bid').first().json.reference_number,\n  title: $('Validate Input').first().json.bid.title,\n  client_name: $('Validate Input').first().json.bid.client_name,\n  document_urls: $('Validate Input').first().json.bid.document_urls\n}) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "http-trigger-analysis",
+      "name": "Trigger AI Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
+        "text": "={{ `📋 *New Bid Submitted*\\n\\n*Reference:* ${$('Insert Bid').first().json.reference_number}\\n*Title:* ${$('Validate Input').first().json.bid.title.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Client:* ${$('Validate Input').first().json.bid.client_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Value:* ${$('Validate Input').first().json.bid.estimated_value ? '$' + $('Validate Input').first().json.bid.estimated_value.toLocaleString() : 'Not specified'}\\n*Deadline:* ${new Date($('Validate Input').first().json.bid.submission_deadline).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}\\n*Priority:* ${$('Validate Input').first().json.bid.priority}\\n\\n_AI analysis in progress\\.\\.\\._` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-notify",
+      "name": "Notify Intake Group",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "response-success",
+              "name": "success",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "response-bid-id",
+              "name": "bid_id",
+              "value": "={{ $('Insert Bid').first().json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "response-reference",
+              "name": "reference_number",
+              "value": "={{ $('Insert Bid').first().json.reference_number }}",
+              "type": "string"
+            },
+            {
+              "id": "response-status",
+              "name": "status",
+              "value": "={{ $('Insert Bid').first().json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "response-created",
+              "name": "created_at",
+              "value": "={{ $('Insert Bid').first().json.created_at }}",
+              "type": "string"
+            },
+            {
+              "id": "response-message",
+              "name": "message",
+              "value": "Bid submitted successfully. AI analysis will begin shortly.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-response",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 201
+        }
+      },
+      "id": "webhook-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: false,\n  error: {\n    code: 'VALIDATION_ERROR',\n    message: $json.error?.message || 'Invalid request data'\n  }\n}) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [680, 480]
+    }
+  ],
+  "connections": {
+    "Webhook: Bid Submit": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Insert Bid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Bid": {
+      "main": [
+        [
+          {
+            "node": "Log to Audit",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Trigger AI Analysis",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notify Intake Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Audit": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger AI Analysis": {
+      "main": [
+        []
+      ]
+    },
+    "Notify Intake Group": {
+      "main": [
+        []
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "bidding-system"
+    },
+    {
+      "name": "intake"
+    }
+  ],
+  "triggerCount": 1,
+  "versionId": "1.0.0"
+}

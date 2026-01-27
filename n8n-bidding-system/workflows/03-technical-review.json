@@ -1,0 +1,335 @@
+{
+  "name": "03 - Technical Review Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "bid/technical-review",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-tech-review",
+      "name": "Webhook: Technical Review",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "bid-technical-review-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  b.*,\n  r.name as submitter_name,\n  r.email as submitter_email\nFROM bids b\nLEFT JOIN reviewers r ON b.submitted_by = r.id\nWHERE b.id = $1",
+        "options": {
+          "queryReplacement": "={{ [$json.body.bid_id] }}"
+        }
+      },
+      "id": "postgres-get-bid",
+      "name": "Get Bid Details",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, telegram_chat_id, telegram_username, name, email\nFROM reviewers\nWHERE can_review_technical = TRUE\nAND is_active = TRUE\nORDER BY RANDOM()\nLIMIT 1",
+        "options": {}
+      },
+      "id": "postgres-get-reviewer",
+      "name": "Get Technical Reviewer",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-reviewer",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-has-reviewer",
+      "name": "Reviewer Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO reviews (\n  bid_id, review_type, assigned_to, assigned_at, due_at, sla_hours\n) VALUES (\n  $1, 'TECHNICAL', $2, NOW(), NOW() + INTERVAL '48 hours', 48\n)\nON CONFLICT (bid_id, review_type) DO UPDATE SET\n  assigned_to = $2,\n  assigned_at = NOW(),\n  due_at = NOW() + INTERVAL '48 hours',\n  decision = 'PENDING',\n  sla_breached = FALSE\nRETURNING id, due_at",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Get Bid Details').first().json.id,\n  $('Get Technical Reviewer').first().json.id\n] }}"
+        }
+      },
+      "id": "postgres-create-review",
+      "name": "Create Review Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1120, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE bids SET\n  status = 'TECHNICAL_REVIEW',\n  current_reviewer_id = $1,\n  updated_at = NOW()\nWHERE id = $2",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Get Technical Reviewer').first().json.id,\n  $('Get Bid Details').first().json.id\n] }}"
+        }
+      },
+      "id": "postgres-update-status",
+      "name": "Update Bid Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1120, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $('Get Technical Reviewer').first().json.telegram_chat_id }}",
+        "text": "={{ `\\uD83D\\uDCCB *Technical Review Required*\\n\\n*Bid:* ${$('Get Bid Details').first().json.reference_number}\\n*Title:* ${$('Get Bid Details').first().json.title.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Client:* ${$('Get Bid Details').first().json.client_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Value:* ${$('Get Bid Details').first().json.estimated_value ? '$' + Number($('Get Bid Details').first().json.estimated_value).toLocaleString() : 'Not specified'}\\n*Deadline:* ${new Date($('Get Bid Details').first().json.submission_deadline).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}\\n\\n*AI Analysis:*\\n\\u2022 Completeness: ${$('Get Bid Details').first().json.completeness_score || 'N/A'}%\\n\\u2022 Win Probability: ${$('Get Bid Details').first().json.win_probability_score || 'N/A'}%\\n\\u2022 Risk Score: ${$('Get Bid Details').first().json.risk_score || 'N/A'}%\\n\\n*SLA:* 48 hours \\(Due: ${new Date($('Create Review Record').first().json.due_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\\)\\n\\nPlease review and approve, request revision, or reject\\.` }}",
+        "replyMarkup": {
+          "inline_keyboard": [
+            [
+              {
+                "text": "Approve",
+                "callback_data": "={{ `approve_${$('Get Bid Details').first().json.id}_tech` }}"
+              },
+              {
+                "text": "Revision",
+                "callback_data": "={{ `revision_${$('Get Bid Details').first().json.id}_tech` }}"
+              },
+              {
+                "text": "Reject",
+                "callback_data": "={{ `reject_${$('Get Bid Details').first().json.id}_tech` }}"
+              }
+            ],
+            [
+              {
+                "text": "View Details",
+                "url": "={{ $env.BID_PORTAL_URL || 'https://bids.example.com' }}/bid/{{ $('Get Bid Details').first().json.id }}"
+              }
+            ]
+          ]
+        },
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-send-review",
+      "name": "Send Review Request",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE reviews SET\n  notification_message_id = $1,\n  notification_chat_id = $2\nWHERE id = $3",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.message_id,\n  $json.chat.id,\n  $('Create Review Record').first().json.id\n] }}"
+        }
+      },
+      "id": "postgres-update-message",
+      "name": "Store Message ID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1560, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (\n  entity_type, entity_id, action,\n  actor_type, actor_id, actor_name, new_value, source\n) VALUES (\n  'review', $1, 'assigned',\n  'system', $2, $3,\n  $4,\n  'workflow'\n)",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Create Review Record').first().json.id,\n  $('Get Technical Reviewer').first().json.id,\n  $('Get Technical Reviewer').first().json.name,\n  JSON.stringify({\n    review_type: 'TECHNICAL',\n    bid_id: $('Get Bid Details').first().json.id,\n    assigned_to: $('Get Technical Reviewer').first().json.name,\n    due_at: $('Create Review Record').first().json.due_at\n  })\n] }}"
+        }
+      },
+      "id": "postgres-audit",
+      "name": "Log Assignment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1560, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_ESCALATION_GROUP }}",
+        "text": "={{ `\\u26A0\\uFE0F *No Technical Reviewer Available*\\n\\n*Bid:* ${$('Get Bid Details').first().json.reference_number}\\n*Title:* ${$('Get Bid Details').first().json.title.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n\\nNo active technical reviewers found\\. Please assign manually\\.` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-no-reviewer",
+      "name": "Alert: No Reviewer",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1120, 480],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook: Technical Review": {
+      "main": [
+        [
+          {
+            "node": "Get Bid Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Bid Details": {
+      "main": [
+        [
+          {
+            "node": "Get Technical Reviewer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Technical Reviewer": {
+      "main": [
+        [
+          {
+            "node": "Reviewer Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reviewer Found?": {
+      "main": [
+        [
+          {
+            "node": "Create Review Record",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Bid Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert: No Reviewer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Review Record": {
+      "main": [
+        [
+          {
+            "node": "Send Review Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Review Request": {
+      "main": [
+        [
+          {
+            "node": "Store Message ID",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Assignment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "bidding-system"
+    },
+    {
+      "name": "review"
+    },
+    {
+      "name": "technical"
+    }
+  ],
+  "triggerCount": 1,
+  "versionId": "1.0.0"
+}

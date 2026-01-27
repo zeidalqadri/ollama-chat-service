@@ -1,0 +1,418 @@
+{
+  "name": "07 - Outcome Tracking & Lessons Learned",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "bid/outcome",
+        "httpMethod": "POST",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-outcome",
+      "name": "Webhook: Record Outcome",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "bid-outcome-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate outcome submission\nconst body = $input.first().json.body;\n\nif (!body.bid_id) {\n  throw new Error('bid_id is required');\n}\n\nconst validOutcomes = ['WON', 'LOST', 'NO_DECISION'];\nif (!body.outcome || !validOutcomes.includes(body.outcome.toUpperCase())) {\n  throw new Error(`outcome must be one of: ${validOutcomes.join(', ')}`);\n}\n\nreturn [{\n  json: {\n    bid_id: body.bid_id,\n    outcome: body.outcome.toUpperCase(),\n    actual_contract_value: body.actual_contract_value ? parseFloat(body.actual_contract_value) : null,\n    loss_reason: body.loss_reason?.trim() || null,\n    competitor_won: body.competitor_won?.trim() || null,\n    notes: body.notes?.trim() || null\n  }\n}];"
+      },
+      "id": "code-validate",
+      "name": "Validate Outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE bids SET\n  status = $1,\n  outcome_recorded_at = NOW(),\n  actual_contract_value = COALESCE($2, actual_contract_value),\n  loss_reason = COALESCE($3, loss_reason),\n  competitor_won = COALESCE($4, competitor_won),\n  notes = COALESCE($5, notes),\n  updated_at = NOW()\nWHERE id = $6\nRETURNING *",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.outcome,\n  $json.actual_contract_value,\n  $json.loss_reason,\n  $json.competitor_won,\n  $json.notes,\n  $json.bid_id\n] }}"
+        }
+      },
+      "id": "postgres-update-outcome",
+      "name": "Update Bid Outcome",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (\n  entity_type, entity_id, action,\n  actor_type, new_value, source\n) VALUES (\n  'bid', $1, 'outcome_recorded',\n  'webhook',\n  $2,\n  'webhook'\n)",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.id,\n  JSON.stringify({\n    outcome: $json.status,\n    actual_contract_value: $json.actual_contract_value,\n    loss_reason: $json.loss_reason\n  })\n] }}"
+        }
+      },
+      "id": "postgres-audit",
+      "name": "Log Outcome to Audit",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  b.*,\n  r_tech.decision_reason as tech_feedback,\n  r_comm.decision_reason as comm_feedback,\n  r_mgmt.decision_reason as mgmt_feedback,\n  rv_tech.name as tech_reviewer,\n  rv_comm.name as comm_reviewer,\n  rv_mgmt.name as mgmt_reviewer\nFROM bids b\nLEFT JOIN reviews r_tech ON b.id = r_tech.bid_id AND r_tech.review_type = 'TECHNICAL'\nLEFT JOIN reviews r_comm ON b.id = r_comm.bid_id AND r_comm.review_type = 'COMMERCIAL'\nLEFT JOIN reviews r_mgmt ON b.id = r_mgmt.bid_id AND r_mgmt.review_type = 'MANAGEMENT'\nLEFT JOIN reviewers rv_tech ON r_tech.assigned_to = rv_tech.id\nLEFT JOIN reviewers rv_comm ON r_comm.assigned_to = rv_comm.id\nLEFT JOIN reviewers rv_mgmt ON r_mgmt.assigned_to = rv_mgmt.id\nWHERE b.id = $1",
+        "options": {
+          "queryReplacement": "={{ [$('Update Bid Outcome').first().json.id] }}"
+        }
+      },
+      "id": "postgres-get-full-bid",
+      "name": "Get Full Bid History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_URL || 'http://localhost:11434' }}/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: $env.ANALYSIS_MODEL || 'qwen3-coder:30b',\n  prompt: `You are a bid analysis expert. Generate lessons learned from this bid outcome.\\n\\nBID SUMMARY:\\n- Reference: ${$json.reference_number}\\n- Client: ${$json.client_name}\\n- Title: ${$json.title}\\n- Estimated Value: $${$json.estimated_value?.toLocaleString() || 'N/A'}\\n- Actual Value: $${$json.actual_contract_value?.toLocaleString() || 'N/A'}\\n- Outcome: ${$json.status}\\n${$json.loss_reason ? '- Loss Reason: ' + $json.loss_reason : ''}\\n${$json.competitor_won ? '- Competitor: ' + $json.competitor_won : ''}\\n\\nAI PREDICTIONS VS REALITY:\\n- Predicted Win Probability: ${$json.win_probability_score || 'N/A'}%\\n- Predicted Risk Score: ${$json.risk_score || 'N/A'}%\\n- Completeness Score: ${$json.completeness_score || 'N/A'}%\\n\\nREVIEW FEEDBACK:\\n- Technical: ${$json.tech_feedback || 'No notes'}\\n- Commercial: ${$json.comm_feedback || 'No notes'}\\n- Management: ${$json.mgmt_feedback || 'No notes'}\\n\\nGenerate lessons learned:\\n1. KEY FACTORS that led to this outcome (3-5 factors)\\n2. WHAT WORKED WELL (for wins) or WHAT COULD IMPROVE (for losses)\\n3. PATTERNS identified that can help future bids\\n4. RECOMMENDATIONS for similar future opportunities\\n\\nRespond in JSON format:\\n{\\n  \"key_factors\": [<string array>],\\n  \"what_worked\": \"<text>\",\\n  \"what_didnt_work\": \"<text>\",\\n  \"improvement_suggestions\": \"<text>\",\\n  \"patterns_identified\": {\\n    \"client_type\": \"<pattern>\",\\n    \"value_range\": \"<pattern>\",\\n    \"timeline\": \"<pattern>\",\\n    \"competition\": \"<pattern>\"\\n  },\\n  \"categories\": [<string array for tagging>]\\n}`,\n  stream: false,\n  options: {\n    temperature: 0.4,\n    num_predict: 1500\n  }\n}) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "ollama-lessons",
+      "name": "AI Generate Lessons",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI lessons learned response\nconst rawResponse = $json.response || '{}';\nconst bid = $('Get Full Bid History').first().json;\n\nlet lessons;\ntry {\n  const jsonMatch = rawResponse.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    lessons = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  lessons = {\n    key_factors: ['AI analysis incomplete - manual review recommended'],\n    what_worked: bid.status === 'WON' ? 'Bid was successful' : '',\n    what_didnt_work: bid.status === 'LOST' ? bid.loss_reason || 'Unknown' : '',\n    improvement_suggestions: 'Manual analysis required',\n    patterns_identified: {},\n    categories: [bid.status.toLowerCase()]\n  };\n}\n\nreturn [{\n  json: {\n    bid_id: bid.id,\n    outcome: bid.status,\n    lessons: lessons\n  }\n}];"
+      },
+      "id": "code-parse-lessons",
+      "name": "Parse Lessons",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lessons_learned (\n  bid_id, outcome, key_factors,\n  what_worked, what_didnt_work, improvement_suggestions,\n  ai_analysis, ai_patterns_identified, categories\n) VALUES (\n  $1, $2, $3, $4, $5, $6, $7, $8, $9\n)\nON CONFLICT (bid_id) DO UPDATE SET\n  outcome = $2,\n  key_factors = $3,\n  what_worked = $4,\n  what_didnt_work = $5,\n  improvement_suggestions = $6,\n  ai_analysis = $7,\n  ai_patterns_identified = $8,\n  categories = $9,\n  updated_at = NOW()\nRETURNING id",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.bid_id,\n  $json.outcome,\n  $json.lessons.key_factors || [],\n  $json.lessons.what_worked || '',\n  $json.lessons.what_didnt_work || '',\n  $json.lessons.improvement_suggestions || '',\n  JSON.stringify($json.lessons),\n  JSON.stringify($json.lessons.patterns_identified || {}),\n  $json.lessons.categories || []\n] }}"
+        }
+      },
+      "id": "postgres-insert-lessons",
+      "name": "Store Lessons Learned",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1560, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-won",
+              "leftValue": "={{ $('Parse Lessons').first().json.outcome }}",
+              "rightValue": "WON",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-won",
+      "name": "Is Won?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_WINS_GROUP }}",
+        "text": "={{ `\\uD83C\\uDFC6 *BID WON\\!*\\n\\n*Reference:* ${$('Get Full Bid History').first().json.reference_number}\\n*Client:* ${$('Get Full Bid History').first().json.client_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n*Contract Value:* ${$('Get Full Bid History').first().json.actual_contract_value ? '$' + Number($('Get Full Bid History').first().json.actual_contract_value).toLocaleString() : 'TBD'}\\n\\n*Key Success Factors:*\\n${$('Parse Lessons').first().json.lessons.key_factors.slice(0, 3).map(f => '\\u2022 ' + f.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\nCongratulations to the team\\! \\uD83C\\uDF89` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-win",
+      "name": "Announce Win",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2000, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
+        "text": "={{ `\\uD83D\\uDCDA *Lessons Learned Recorded*\\n\\n*Reference:* ${$('Get Full Bid History').first().json.reference_number}\\n*Outcome:* ${$('Parse Lessons').first().json.outcome}\\n*Client:* ${$('Get Full Bid History').first().json.client_name.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')}\\n\\n*Key Factors:*\\n${$('Parse Lessons').first().json.lessons.key_factors.slice(0, 3).map(f => '\\u2022 ' + f.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n*Areas for Improvement:*\\n${$('Parse Lessons').first().json.lessons.improvement_suggestions?.substring(0, 200).replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&') || 'See full analysis'}` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-lessons",
+      "name": "Share Lessons",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2000, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "response-success",
+              "name": "success",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "response-bid-id",
+              "name": "bid_id",
+              "value": "={{ $('Update Bid Outcome').first().json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "response-outcome",
+              "name": "outcome",
+              "value": "={{ $('Update Bid Outcome').first().json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "response-lessons-id",
+              "name": "lessons_learned_id",
+              "value": "={{ $('Store Lessons Learned').first().json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "response-message",
+              "name": "message",
+              "value": "Outcome recorded and lessons learned generated successfully.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-response",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "webhook-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2440, 300]
+    }
+  ],
+  "connections": {
+    "Webhook: Record Outcome": {
+      "main": [
+        [
+          {
+            "node": "Validate Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Outcome": {
+      "main": [
+        [
+          {
+            "node": "Update Bid Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Bid Outcome": {
+      "main": [
+        [
+          {
+            "node": "Log Outcome to Audit",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Full Bid History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Full Bid History": {
+      "main": [
+        [
+          {
+            "node": "AI Generate Lessons",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Generate Lessons": {
+      "main": [
+        [
+          {
+            "node": "Parse Lessons",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Lessons": {
+      "main": [
+        [
+          {
+            "node": "Store Lessons Learned",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Lessons Learned": {
+      "main": [
+        [
+          {
+            "node": "Is Won?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Won?": {
+      "main": [
+        [
+          {
+            "node": "Announce Win",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Share Lessons",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Announce Win": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Share Lessons": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "bidding-system"
+    },
+    {
+      "name": "outcome"
+    },
+    {
+      "name": "lessons-learned"
+    }
+  ],
+  "triggerCount": 1,
+  "versionId": "1.0.0"
+}

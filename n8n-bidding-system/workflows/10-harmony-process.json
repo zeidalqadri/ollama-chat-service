@@ -1,0 +1,67 @@
+{
+  "name": "10 - Harmony Process",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "harmony/process",
+        "httpMethod": "POST",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "harmony-process"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst raw = typeof body.raw_data === 'string' ? JSON.parse(body.raw_data) : body.raw_data;\n\n// Parse date from DD/MM/YYYY to ISO\nfunction parseDate(dateStr) {\n  if (!dateStr) return new Date(Date.now() + 30*24*60*60*1000).toISOString();\n  const parts = dateStr.split('/');\n  if (parts.length === 3) {\n    return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).toISOString();\n  }\n  const parsed = new Date(dateStr);\n  return isNaN(parsed.getTime()) ? new Date(Date.now() + 30*24*60*60*1000).toISOString() : parsed.toISOString();\n}\n\n// Calculate priority\nconst value = parseFloat(raw.estimated_value) || 0;\nconst deadline = new Date(parseDate(raw.closing_date || raw.deadline));\nconst daysUntil = Math.ceil((deadline - new Date()) / (1000*60*60*24));\n\nlet score = 0;\nif (value >= 1000000) score += 40;\nelse if (value >= 500000) score += 30;\nelse if (value >= 100000) score += 20;\nelse score += 10;\n\nif (daysUntil <= 3) score += 40;\nelse if (daysUntil <= 7) score += 30;\nelse if (daysUntil <= 14) score += 20;\nelse score += 10;\n\nconst priority = score >= 70 ? 'CRITICAL' : score >= 50 ? 'HIGH' : score >= 30 ? 'MEDIUM' : 'LOW';\n\nreturn [{\n  json: {\n    raw_tender_id: body.raw_tender_id,\n    source: body.source,\n    source_tender_id: body.source_tender_id,\n    title: raw.title || 'Untitled',\n    client_name: raw.organization || raw.agency || raw.client_name || 'Unknown',\n    submission_deadline: parseDate(raw.closing_date || raw.deadline),\n    estimated_value: value || null,\n    currency: raw.currency || 'MYR',\n    priority: priority,\n    priority_score: score,\n    days_until_deadline: daysUntil,\n    source_url: raw.source_url || raw.url || null,\n    document_urls: raw.document_urls || [],\n    notes: `Imported from ${body.source} via Harmony Pipeline`\n  }\n}];"
+      },
+      "id": "normalize",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE_URL }}/webhook/bid/submit",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {"timeout": 30000}
+      },
+      "id": "submit",
+      "name": "Submit to TenderBiru",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE raw_tenders SET status = 'processed', processed_at = NOW(), bid_id = '{{ $json.bid_id }}' WHERE id = '{{ $('Normalize').first().json.raw_tender_id }}'",
+        "options": {}
+      },
+      "id": "update",
+      "name": "Mark Processed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 300],
+      "credentials": {"postgres": {"id": "postgres-bidding", "name": "Postgres Bidding DB"}}
+    }
+  ],
+  "connections": {
+    "Webhook": {"main": [[{"node": "Normalize", "type": "main", "index": 0}]]},
+    "Normalize": {"main": [[{"node": "Submit to TenderBiru", "type": "main", "index": 0}]]},
+    "Submit to TenderBiru": {"main": [[{"node": "Mark Processed", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "saveManualExecutions": true},
+  "staticData": null,
+  "tags": [{"name": "harmony-pipeline"}],
+  "triggerCount": 1,
+  "versionId": "1.1.0"
+}

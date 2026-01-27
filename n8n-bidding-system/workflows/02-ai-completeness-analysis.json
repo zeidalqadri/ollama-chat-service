@@ -1,0 +1,397 @@
+{
+  "name": "02 - AI Completeness Analysis",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "bid/analyze",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-analyze",
+      "name": "Webhook: Analyze Bid",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "bid-analyze-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  b.*,\n  r.name as submitter_name\nFROM bids b\nLEFT JOIN reviewers r ON b.submitted_by = r.id\nWHERE b.id = $1",
+        "options": {
+          "queryReplacement": "={{ [$json.body.bid_id] }}"
+        }
+      },
+      "id": "postgres-get-bid",
+      "name": "Get Bid Details",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-documents",
+              "leftValue": "={{ $json.document_urls?.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-has-docs",
+      "name": "Has Documents?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_URL || 'http://localhost:11434' }}/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: 'deepseek-ocr:latest',\n  prompt: `Extract and summarize the text content from this document URL for bid analysis:\\n\\nDocument: ${$json.document_urls[0]}\\n\\nProvide a structured extraction of:\\n1. Executive Summary\\n2. Scope of Work\\n3. Technical Requirements\\n4. Timeline/Milestones\\n5. Budget/Pricing Information\\n6. Evaluation Criteria\\n7. Submission Requirements\\n8. Key Contacts\\n\\nOutput as JSON.`,\n  stream: false,\n  options: {\n    temperature: 0.3,\n    num_predict: 2000\n  }\n}) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "ollama-ocr",
+      "name": "OCR Documents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build bid context for analysis\nconst bid = $('Get Bid Details').first().json;\nconst ocrResult = $('OCR Documents')?.first()?.json?.response || 'No documents provided';\n\nconst bidContext = {\n  reference_number: bid.reference_number,\n  title: bid.title,\n  client_name: bid.client_name,\n  client_contact: bid.client_contact,\n  client_email: bid.client_email,\n  estimated_value: bid.estimated_value,\n  currency: bid.currency,\n  submission_deadline: bid.submission_deadline,\n  project_duration_days: bid.project_duration_days,\n  priority: bid.priority,\n  notes: bid.notes,\n  document_count: bid.document_urls?.length || 0,\n  document_extraction: ocrResult\n};\n\nreturn [{ json: { bid_id: bid.id, context: bidContext } }];"
+      },
+      "id": "code-build-context",
+      "name": "Build Analysis Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_URL || 'http://localhost:11434' }}/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: $env.ANALYSIS_MODEL || 'qwen3-coder:30b',\n  prompt: `You are a bid analysis expert. Analyze this bid submission for completeness and provide scoring.\\n\\nBID CONTEXT:\\n${JSON.stringify($json.context, null, 2)}\\n\\nANALYSIS REQUIREMENTS:\\n1. COMPLETENESS SCORE (0-100):\\n   - Executive summary present (10 pts)\\n   - Clear scope definition (15 pts)\\n   - Technical requirements detailed (15 pts)\\n   - Timeline/milestones specified (10 pts)\\n   - Budget/pricing complete (15 pts)\\n   - Evaluation criteria understood (10 pts)\\n   - Submission requirements clear (10 pts)\\n   - Contact information available (5 pts)\\n   - Supporting documents provided (10 pts)\\n\\n2. MISSING SECTIONS: List any critical missing information\\n\\n3. WIN PROBABILITY ASSESSMENT (0-100):\\n   Consider: market fit, competitive positioning, pricing, timeline feasibility\\n\\n4. RISK SCORE (0-100, higher = more risky):\\n   Consider: complexity, timeline pressure, resource requirements, unknowns\\n\\n5. RECOMMENDATIONS: Top 3 actions to improve this bid\\n\\nRESPOND IN THIS EXACT JSON FORMAT:\\n{\\n  \"completeness_score\": <number>,\\n  \"missing_sections\": [<string array>],\\n  \"win_probability\": <number>,\\n  \"risk_score\": <number>,\\n  \"recommendations\": [<string array max 5>],\\n  \"analysis_summary\": \"<brief summary>\",\\n  \"detailed_assessment\": {\\n    \"strengths\": [<string array>],\\n    \"weaknesses\": [<string array>],\\n    \"opportunities\": [<string array>],\\n    \"threats\": [<string array>]\\n  }\\n}`,\n  stream: false,\n  options: {\n    temperature: 0.4,\n    num_predict: 2000\n  }\n}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "ollama-analysis",
+      "name": "AI Completeness Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI analysis response\nconst rawResponse = $json.response || '{}';\nconst bidId = $('Build Analysis Context').first().json.bid_id;\n\n// Try to extract JSON from response\nlet analysis;\ntry {\n  // Find JSON in response (may be wrapped in markdown code blocks)\n  const jsonMatch = rawResponse.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    analysis = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found in response');\n  }\n} catch (e) {\n  // Fallback to default values if parsing fails\n  analysis = {\n    completeness_score: 50,\n    missing_sections: ['Unable to parse AI response - manual review required'],\n    win_probability: 50,\n    risk_score: 50,\n    recommendations: ['Manual review of bid documents recommended'],\n    analysis_summary: 'AI analysis could not be completed. Please review manually.',\n    detailed_assessment: {\n      strengths: [],\n      weaknesses: ['AI analysis incomplete'],\n      opportunities: [],\n      threats: ['Unknown due to analysis failure']\n    }\n  };\n}\n\n// Validate and clamp scores\nanalysis.completeness_score = Math.min(100, Math.max(0, parseInt(analysis.completeness_score) || 50));\nanalysis.win_probability = Math.min(100, Math.max(0, parseInt(analysis.win_probability) || 50));\nanalysis.risk_score = Math.min(100, Math.max(0, parseInt(analysis.risk_score) || 50));\n\n// Determine if bid needs more info\nconst needsInfo = analysis.completeness_score < 70;\nconst newStatus = needsInfo ? 'NEEDS_INFO' : 'TECHNICAL_REVIEW';\n\nreturn [{\n  json: {\n    bid_id: bidId,\n    analysis: analysis,\n    new_status: newStatus,\n    needs_info: needsInfo\n  }\n}];"
+      },
+      "id": "code-parse-analysis",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE bids SET\n  completeness_score = $1,\n  win_probability_score = $2,\n  risk_score = $3,\n  ai_analysis_json = $4,\n  missing_sections = $5,\n  ai_recommendations = $6,\n  status = $7,\n  updated_at = NOW()\nWHERE id = $8\nRETURNING reference_number, status",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.analysis.completeness_score,\n  $json.analysis.win_probability,\n  $json.analysis.risk_score,\n  JSON.stringify($json.analysis),\n  $json.analysis.missing_sections || [],\n  $json.analysis.recommendations || [],\n  $json.new_status,\n  $json.bid_id\n] }}"
+        }
+      },
+      "id": "postgres-update-scores",
+      "name": "Update Bid Scores",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1780, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (\n  entity_type, entity_id, action,\n  actor_type, new_value, source\n) VALUES (\n  'bid', $1, 'ai_analysis_completed',\n  'ai',\n  $2,\n  'workflow'\n)",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Parse AI Response').first().json.bid_id,\n  JSON.stringify({\n    completeness_score: $('Parse AI Response').first().json.analysis.completeness_score,\n    win_probability: $('Parse AI Response').first().json.analysis.win_probability,\n    risk_score: $('Parse AI Response').first().json.analysis.risk_score,\n    new_status: $('Parse AI Response').first().json.new_status\n  })\n] }}"
+        }
+      },
+      "id": "postgres-audit-analysis",
+      "name": "Log Analysis to Audit",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2000, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-needs-info",
+              "leftValue": "={{ $('Parse AI Response').first().json.needs_info }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-needs-info",
+      "name": "Needs More Info?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 400]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
+        "text": "={{ `\\u26A0\\uFE0F *Bid Needs Additional Information*\\n\\n*Reference:* ${$json.reference_number}\\n*Completeness Score:* ${$('Parse AI Response').first().json.analysis.completeness_score}%\\n\\n*Missing Information:*\\n${($('Parse AI Response').first().json.analysis.missing_sections || []).map(s => '\\u2022 ' + s.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n*Recommendations:*\\n${($('Parse AI Response').first().json.analysis.recommendations || []).slice(0, 3).map(r => '\\u2022 ' + r.replace(/[_*\\[\\]()~\\`>#\\+\\-=|{}.!]/g, '\\\\$&')).join('\\n')}\\n\\n_Please provide the missing information to proceed\\._` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-needs-info",
+      "name": "Notify: Needs Info",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2220, 500],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE_URL }}/webhook/bid/technical-review",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  bid_id: $('Parse AI Response').first().json.bid_id,\n  reference_number: $json.reference_number,\n  completeness_score: $('Parse AI Response').first().json.analysis.completeness_score,\n  win_probability: $('Parse AI Response').first().json.analysis.win_probability\n}) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "http-trigger-technical",
+      "name": "Trigger Technical Review",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
+        "text": "={{ `\\u2705 *AI Analysis Complete*\\n\\n*Reference:* ${$json.reference_number}\\n*Completeness:* ${$('Parse AI Response').first().json.analysis.completeness_score}%\\n*Win Probability:* ${$('Parse AI Response').first().json.analysis.win_probability}%\\n*Risk Score:* ${$('Parse AI Response').first().json.analysis.risk_score}%\\n\\n_Proceeding to Technical Review\\._` }}",
+        "additionalFields": {
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "id": "telegram-analysis-complete",
+      "name": "Notify: Analysis Complete",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2440, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      },
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Webhook: Analyze Bid": {
+      "main": [
+        [
+          {
+            "node": "Get Bid Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Bid Details": {
+      "main": [
+        [
+          {
+            "node": "Has Documents?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Documents?": {
+      "main": [
+        [
+          {
+            "node": "OCR Documents",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Analysis Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Documents": {
+      "main": [
+        [
+          {
+            "node": "Build Analysis Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Analysis Context": {
+      "main": [
+        [
+          {
+            "node": "AI Completeness Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Completeness Analysis": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Update Bid Scores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Bid Scores": {
+      "main": [
+        [
+          {
+            "node": "Log Analysis to Audit",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Needs More Info?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs More Info?": {
+      "main": [
+        [
+          {
+            "node": "Trigger Technical Review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify: Needs Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger Technical Review": {
+      "main": [
+        [
+          {
+            "node": "Notify: Analysis Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler-workflow"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "bidding-system"
+    },
+    {
+      "name": "ai-analysis"
+    }
+  ],
+  "triggerCount": 1,
+  "versionId": "1.0.0"
+}
