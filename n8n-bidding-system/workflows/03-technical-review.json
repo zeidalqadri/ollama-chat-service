@@ -5,7 +5,7 @@
       "parameters": {
         "path": "bid/technical-review",
         "httpMethod": "POST",
-        "responseMode": "onReceived",
+        
         "options": {}
       },
       "id": "webhook-tech-review",

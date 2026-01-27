@@ -5,7 +5,7 @@
       "parameters": {
         "path": "bid/management-approval",
         "httpMethod": "POST",
-        "responseMode": "onReceived",
+        
         "options": {}
       },
       "id": "webhook-mgmt-approval",
