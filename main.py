@@ -51,6 +51,73 @@ DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "qwen3-coder:30b")
 VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", "bakllava", "llava-phi", "granite3.2-vision", "minicpm-v"]
 TRANSLATION_MODELS = ["translategemma", "nllb", "mbart", "seamless"]
 
+# Model metadata for UI display and tender automation routing
+MODEL_METADATA = {
+    "qwen3-coder:30b": {
+        "name": "Qwen3 Coder 30B",
+        "origin": "🇨🇳",
+        "size": "18GB",
+        "category": "coding",
+        "description": "Technical proposal writing, methodology, architecture diagrams",
+        "tender_stages": ["compose-technical"],
+        "tags": ["code", "technical", "heavy"]
+    },
+    "qwen2.5-coder:7b": {
+        "name": "Qwen2.5 Coder 7B",
+        "origin": "🇨🇳",
+        "size": "4.7GB",
+        "category": "coding",
+        "description": "Browser automation, portal navigation, form filling, data extraction",
+        "tender_stages": ["scout", "submit", "extract"],
+        "tags": ["fast", "tools", "browser"]
+    },
+    "gemma2:9b": {
+        "name": "Gemma 2 9B",
+        "origin": "🇺🇸",
+        "size": "5.4GB",
+        "category": "analysis",
+        "description": "Tender qualification, compliance scoring, structured analysis",
+        "tender_stages": ["analyze", "review"],
+        "tags": ["analysis", "structured", "reasoning"]
+    },
+    "mistral-nemo": {
+        "name": "Mistral Nemo 12B",
+        "origin": "🇫🇷",
+        "size": "7.1GB",
+        "category": "writing",
+        "description": "Formal bid documents, executive summaries, cover letters",
+        "tender_stages": ["compose-formal", "review"],
+        "tags": ["formal", "concise", "professional"]
+    },
+    "deepseek-ocr": {
+        "name": "DeepSeek OCR",
+        "origin": "🇨🇳",
+        "size": "6.7GB",
+        "category": "vision",
+        "description": "Scanned document OCR, image-based tender extraction",
+        "tender_stages": ["extract-vision"],
+        "tags": ["vision", "ocr", "documents"]
+    },
+    "guardpoint": {
+        "name": "Guardpoint Medical",
+        "origin": "🇨🇳",
+        "size": "15GB",
+        "category": "specialist",
+        "description": "Healthcare/medical tender analysis, clinical reasoning",
+        "tender_stages": ["analyze-medical"],
+        "tags": ["medical", "specialist", "reasoning"]
+    },
+    "translategemma": {
+        "name": "TranslateGemma",
+        "origin": "🇺🇸",
+        "size": "3.3GB",
+        "category": "translation",
+        "description": "Multi-language tender document translation",
+        "tender_stages": ["translate"],
+        "tags": ["translation", "multilingual"]
+    }
+}
+
 # JWT Settings
 SECRET_KEY = os.environ.get("SECRET_KEY", "borak-secret-key-change-in-production-" + str(hash(DATA_DIR)))
 ALGORITHM = "HS256"
@@ -1344,11 +1411,31 @@ async def api_me(user_id: int = Depends(get_current_user)):
 @app.get("/api/models")
 async def api_models():
     models = get_available_models()
+    # Enrich with metadata
+    models_with_meta = []
+    for model in models:
+        # Match by prefix (e.g., "qwen3-coder:30b" or "qwen3-coder")
+        base_name = model.split(":")[0] if ":" in model else model
+        meta = MODEL_METADATA.get(model) or MODEL_METADATA.get(base_name) or {
+            "name": model,
+            "origin": "🌐",
+            "size": "unknown",
+            "category": "general",
+            "description": "",
+            "tender_stages": [],
+            "tags": []
+        }
+        models_with_meta.append({
+            "id": model,
+            **meta
+        })
     return {
         "models": models,
+        "models_meta": models_with_meta,
         "default": DEFAULT_MODEL,
         "vision_models": VISION_MODELS,
-        "translation_models": TRANSLATION_MODELS
+        "translation_models": TRANSLATION_MODELS,
+        "model_metadata": MODEL_METADATA
     }
 
 # =============================================================================
