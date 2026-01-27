@@ -1,6 +1,6 @@
 # TenderBiru n8n Bidding System Tasks
 
-**Last Updated**: 2026-01-28 00:45 MYT (Session 8)
+**Last Updated**: 2026-01-28 06:00 MYT (Session 9)
 
 ## Completed Tasks
 
@@ -21,120 +21,140 @@
 - [x] Add ePerolehan Source to Harmony Pipeline
 
 ### Session 8
-- [x] **Implement Automated Troubleshooting Pipeline** ✅
-  - Added `/api/troubleshoot` endpoint to BORAK (main.py)
-  - 5 troubleshooting stages: scrape, extract, analyze, document, submit
-  - Model routing: qwen2.5-coder:7b, gemma2:9b, deepseek-ocr
-  - Prompt templates for each failure type
+- [x] Implement Automated Troubleshooting Pipeline
+- [x] Update Workflow 09 - Harmony Ingest to v2.0.0
+- [x] Update Workflow 02 - AI Completeness Analysis to v2.0.0
+- [x] Fix analyze troubleshooter empty data issue
+- [x] Deploy and test on VPS
 
-- [x] **Update Workflow 09 - Harmony Ingest to v2.0.0** ✅
-  - Added extraction troubleshoot branch
-  - Calls `/api/troubleshoot` when tenders empty but raw_html available
-  - Merges recovered data or flags for manual review
-  - Telegram alerts for extraction failures
-  - Updated in `n8n.workflow_entity` (id: `8GdOVgHbGoPaT6mM`)
+### Session 9
+- [x] **Create TDD Test Infrastructure** ✅
+  - Created `n8n-bidding-system/tests/` with 24 files, 6,700 lines
+  - 164 test functions covering all 10 workflows
+  - Unit tests, integration tests, E2E tests, factories, mocks
 
-- [x] **Update Workflow 02 - AI Completeness Analysis to v2.0.0** ✅
-  - Added retry logic with 240s timeout
-  - Fallback to troubleshoot endpoint if retry fails
-  - Default scores (50/50/50) with NEEDS_MANUAL_REVIEW status
-  - Separate Telegram alerts for manual review vs needs-info
-  - Updated in `n8n.workflow_entity` (id: `l2RiR02qed1XaTzX`)
+- [x] **Run Unit Tests** ✅
+  - 82/82 tests PASS (100%)
+  - Callback parsing, status transitions, reviewer assignment
 
-- [x] **Fix analyze troubleshooter empty data issue** ✅
-  - Fixed extraction logic in `run_troubleshoot()` for analyze stage
-  - Now correctly returns `{completeness_score, win_probability, risk_score}`
+- [x] **Deploy Tests to VPS** ✅
+  - Tests at `/opt/n8n-bidding-system/tests/`
+  - Virtual env at `.venv-vps/`
+  - DB connection working
 
-- [x] **Deploy and test on VPS** ✅
-  - BORAK service restarted with new endpoint
-  - Workflows updated directly in n8n PostgreSQL (`n8n` schema)
-  - Verified scrape troubleshooter: extracts tender fields from HTML
-  - Verified analyze troubleshooter: returns fallback scores
+- [x] **Run Integration Tests (WF03)** ✅
+  - 2/10 tests PASS
+  - 8 tests reveal workflow gaps (TDD RED phase complete)
 
 ## In Progress
 
 None currently
 
-## Pending Tasks
+## Pending Tasks - Session 10
 
-### High Priority
-- [ ] **Test end-to-end troubleshooting flow**
-  - Send request with empty tenders + raw_html to Harmony Ingest
-  - Verify troubleshooter extracts data
-  - Confirm recovered tender proceeds through pipeline
+### Step 1: Fix Test Infrastructure (15 min)
+Update ALL integration test files with:
+```python
+import time
+WORKFLOW_WAIT_SECONDS = 3
 
-### Medium Priority
-- [ ] **Set up Scheduled Reports**
-  - Configure timezone in workflow settings
-  - Verify 08-scheduled-reports.json is working
+# After every webhook call:
+response = n8n_client.post("/technical-review", json={...})
+time.sleep(WORKFLOW_WAIT_SECONDS)
 
-- [ ] **Test Document Troubleshooter**
-  - Test deepseek-ocr stage with failed OCR scenario
-  - Verify retry logic works
+# In SQL queries use ::uuid cast:
+db_cursor.execute("SELECT * FROM reviews WHERE bid_id = %s::uuid", (str(bid_id),))
+```
 
-- [ ] **Test Submit Troubleshooter**
-  - Test qwen2.5-coder:7b for portal error analysis
-  - Verify suggested corrections are useful
+**Files to update**:
+- `test_wf01_bid_submission.py`
+- `test_wf02_ai_analysis.py`
+- `test_wf04_commercial_review.py`
+- `test_wf05_management_approval.py`
+- `test_wf06_callback_handler.py`
+- `test_wf07_outcome_tracking.py`
+- `test_wf09_harmony_ingest.py`
+- `test_wf10_harmony_process.py`
 
-### Low Priority
-- [ ] **Add BORAK_URL to n8n environment**
-  - Currently hardcoded as fallback `http://localhost:8012`
-  - Should be in `/opt/alumist/config/.env`
-
-- [ ] **Test Review Workflows (03, 04, 05)**
-  - Verify Telegram notification routing
-  - Test callback handling
-
-## Quick Commands
-
+### Step 2: Re-run All Integration Tests (30 min)
 ```bash
-# SSH to VPS
 ssh -p 1511 root@45.159.230.42
+cd /opt/n8n-bidding-system/tests
+export TEST_DB_DSN='postgresql://alumist:TVw2xISldsFov7O5ksjr7SYYwazR4if@localhost:5432/tenderbiru'
+source .venv-vps/bin/activate
+pytest integration/ -v --tb=line 2>&1 | tee test-results.log
+```
 
-# Test Troubleshoot - Scrape
-curl -s -X POST http://45.159.230.42:8012/api/troubleshoot \
-  -H "Content-Type: application/json" \
-  -d '{"stage":"scrape","error_data":{"url":"test","error":"Failed"},"context":{"raw_html":"<table><tr><td>ID:</td><td>TND-001</td></tr><tr><td>Title:</td><td>Road Works</td></tr></table>"}}'
+This will show which workflow features are missing (TDD RED phase).
 
-# Test Troubleshoot - Analyze
-curl -s -X POST http://45.159.230.42:8012/api/troubleshoot \
-  -H "Content-Type: application/json" \
-  -d '{"stage":"analyze","error_data":{"title":"Test","client":"Corp","deadline":"2026-03-01","doc_count":2},"context":{}}'
+### Step 3: Fix Workflow Gaps (1-2 hours)
+Based on failing tests, update workflows to:
 
-# Check workflow versions
-PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -h localhost -U alumist -d alumist_n8n \
-  -c "SELECT id, name, \"versionId\", json_array_length(nodes) as nodes FROM n8n.workflow_entity WHERE name LIKE '%Harmony Ingest%' OR name LIKE '%Completeness%';"
+| Gap | Fix Required | Workflow |
+|-----|--------------|----------|
+| No bid status update | Add UPDATE bids SET status after review created | WF03, WF04, WF05 |
+| No telegram_notifications logging | Add INSERT into telegram_notifications after sendMessage | WF03, WF04, WF05 |
+| No audit_log entries | Add INSERT into audit_log for actions | All |
+| No escalation on missing reviewer | Add IF node to check reviewer found | WF03, WF04, WF05 |
+| Accepts invalid bid_ids | Add validation node before processing | All |
 
-# Check BORAK logs
-tail -50 /var/log/borak.log
+### Step 4: Commit and Push (5 min)
+```bash
+git add n8n-bidding-system/tests/
+git commit -m "feat(tests): add TDD test suite for TenderBiru workflows
 
-# Restart BORAK
-pkill -f 'uvicorn main:app.*8012' && cd /opt/ollama-ui && nohup /opt/ollama-ui/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8012 > /var/log/borak.log 2>&1 &
+- 82 unit tests for callback parsing, status transitions, reviewer assignment
+- 78 integration tests for all 10 workflows
+- Test fixtures, factories, and mocks for Telegram/Ollama
+- VPS test environment setup at /opt/n8n-bidding-system/tests/
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+git push
+```
+
+### Step 5: Update Handoff (5 min)
+Create `dev-docs/handoff-2026-01-28-session9.md`
+
+## Quick Reference
+
+### Test Commands
+```bash
+# Local unit tests
+source n8n-bidding-system/tests/.venv/bin/activate
+pytest n8n-bidding-system/tests/unit/ -v
+
+# VPS integration tests
+ssh -p 1511 root@45.159.230.42 "cd /opt/n8n-bidding-system/tests && export TEST_DB_DSN='postgresql://alumist:TVw2xISldsFov7O5ksjr7SYYwazR4if@localhost:5432/tenderbiru' && source .venv-vps/bin/activate && pytest integration/test_wf03_technical_review.py -v"
+
+# Single test
+pytest integration/test_wf03_technical_review.py::TestTechnicalReviewAssignment::test_technical_review_assigns_reviewer -v
+```
+
+### Workflow Webhook Paths
+| Workflow | Path |
+|----------|------|
+| Bid Submission | `/webhook/bid/submit` |
+| AI Analysis | `/webhook/bid/analyze` |
+| Technical Review | `/webhook/bid/technical-review` |
+| Commercial Review | `/webhook/bid/commercial-review` |
+| Management Approval | `/webhook/bid/management-approval` |
+| Telegram Callback | `/webhook/telegram-callback` |
+| Harmony Ingest | `/webhook/harmony/ingest` |
+| Harmony Process | `/webhook/harmony/process` |
+
+### Database
+```bash
+PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -h localhost -U alumist -d tenderbiru
 ```
 
 ## Notes
 
-### n8n Database Schema (CRITICAL)
-- Workflows are in `n8n.workflow_entity` NOT `public.workflow_entity`
-- Always use `n8n.` prefix when querying or updating workflows
-- Workflow IDs:
-  - `8GdOVgHbGoPaT6mM` = 09 - Harmony Ingest
-  - `l2RiR02qed1XaTzX` = 02 - AI Completeness Analysis
+### TDD Philosophy
+- **RED**: Tests fail (document expected behavior) ← WE ARE HERE
+- **GREEN**: Minimal code to pass tests
+- **REFACTOR**: Clean up while tests pass
 
-### Troubleshoot Endpoint Response Format
-```json
-{
-  "success": true,
-  "stage": "scrape",
-  "model_used": "qwen2.5-coder:7b",
-  "data": {"tender_id": "...", "title": "..."},
-  "diagnosis": "...",
-  "confidence": 0.9,
-  "needs_manual": false,
-  "recovered": true
-}
-```
+The 8 failing WF03 tests are the "RED" phase - they document what the workflow SHOULD do. Next session will implement the fixes (GREEN phase).
 
-### responseMode Rules (CRITICAL)
-- **WITH Respond nodes**: Use `responseMode: "responseNode"`
-- **WITHOUT Respond nodes**: Remove `responseMode` entirely
+### Files Modified This Session
+All files in `n8n-bidding-system/tests/` are new this session.
