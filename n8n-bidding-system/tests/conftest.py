@@ -27,6 +27,9 @@ VPS_DB_PORT = os.getenv("TEST_DB_PORT", "5432")
 N8N_WEBHOOK_URL = f"http://{VPS_HOST}:{VPS_N8N_PORT}/webhook/bid"
 N8N_WEBHOOK_TEST_URL = f"http://{VPS_HOST}:{VPS_N8N_PORT}/webhook-test/bid"
 
+# Harmony workflows use /webhook/harmony/ prefix
+N8N_HARMONY_URL = f"http://{VPS_HOST}:{VPS_N8N_PORT}/webhook/harmony"
+
 # Database DSN - use test database or main with rollback
 TEST_DB_DSN = os.getenv(
     "TEST_DB_DSN",
@@ -132,6 +135,21 @@ async def async_n8n_client():
         yield client
 
 
+@pytest.fixture
+def harmony_client() -> Generator[httpx.Client, None, None]:
+    """
+    HTTP client for calling Harmony workflow webhooks.
+    Harmony workflows use /webhook/harmony/ prefix.
+    """
+    client = httpx.Client(
+        base_url=N8N_HARMONY_URL,
+        timeout=httpx.Timeout(30.0, connect=5.0),
+        headers={"Content-Type": "application/json"}
+    )
+    yield client
+    client.close()
+
+
 # =============================================================================
 # TEST DATA FIXTURES
 # =============================================================================
@@ -180,14 +198,17 @@ def sample_bid_invalid_deadline() -> dict[str, Any]:
     }
 
 
+# Real Telegram chat ID for testing (Zeid's account - receives actual notifications)
+REAL_TELEGRAM_CHAT_ID = 5426763403
+REAL_TELEGRAM_USERNAME = "zaborz"
+
+
 @pytest.fixture
 def sample_reviewer_technical() -> dict[str, Any]:
-    """Technical reviewer data."""
-    import random
-    unique_id = random.randint(900000000, 999999999)
+    """Technical reviewer data using real Telegram ID."""
     return {
-        "telegram_chat_id": unique_id,
-        "telegram_username": f"test_tech_{unique_id}",
+        "telegram_chat_id": REAL_TELEGRAM_CHAT_ID,
+        "telegram_username": REAL_TELEGRAM_USERNAME,
         "name": "Tech Reviewer TDD",
         "email": f"tech-tdd-{uuid4().hex[:8]}@test.com",
         "role": "Technical Lead",
@@ -201,12 +222,10 @@ def sample_reviewer_technical() -> dict[str, Any]:
 
 @pytest.fixture
 def sample_reviewer_commercial() -> dict[str, Any]:
-    """Commercial reviewer data."""
-    import random
-    unique_id = random.randint(800000000, 899999999)
+    """Commercial reviewer data using real Telegram ID."""
     return {
-        "telegram_chat_id": unique_id,
-        "telegram_username": f"test_comm_{unique_id}",
+        "telegram_chat_id": REAL_TELEGRAM_CHAT_ID,
+        "telegram_username": REAL_TELEGRAM_USERNAME,
         "name": "Commercial Reviewer TDD",
         "email": f"comm-tdd-{uuid4().hex[:8]}@test.com",
         "role": "Finance Manager",
@@ -220,12 +239,10 @@ def sample_reviewer_commercial() -> dict[str, Any]:
 
 @pytest.fixture
 def sample_reviewer_management() -> dict[str, Any]:
-    """Management approver data."""
-    import random
-    unique_id = random.randint(700000000, 799999999)
+    """Management approver data using real Telegram ID."""
     return {
-        "telegram_chat_id": unique_id,
-        "telegram_username": f"test_mgmt_{unique_id}",
+        "telegram_chat_id": REAL_TELEGRAM_CHAT_ID,
+        "telegram_username": REAL_TELEGRAM_USERNAME,
         "name": "Management Approver TDD",
         "email": f"mgmt-tdd-{uuid4().hex[:8]}@test.com",
         "role": "Executive Director",
@@ -405,23 +422,57 @@ def create_test_bid(db_cursor, sample_bid):
 
 @pytest.fixture
 def create_test_reviewer(db_cursor):
-    """Factory fixture to create a test reviewer."""
+    """Factory fixture to create or get a test reviewer.
+
+    When using the real Telegram ID, checks if reviewer exists first
+    and updates only the permission flags (not the ID) to avoid FK violations.
+    """
     def _create_reviewer(reviewer_data: dict[str, Any]) -> dict[str, Any]:
+        # Check if reviewer with this telegram_chat_id already exists
         db_cursor.execute("""
-            INSERT INTO reviewers (
-                telegram_chat_id, telegram_username, name, email,
-                role, department, can_review_technical, can_review_commercial,
-                can_approve_management, is_active
-            ) VALUES (
-                %(telegram_chat_id)s, %(telegram_username)s, %(name)s, %(email)s,
-                %(role)s, %(department)s, %(can_review_technical)s, %(can_review_commercial)s,
-                %(can_approve_management)s, %(is_active)s
-            )
-            RETURNING id
+            SELECT id FROM reviewers WHERE telegram_chat_id = %(telegram_chat_id)s
         """, reviewer_data)
-        result = db_cursor.fetchone()
-        db_cursor.connection.commit()
-        return {"id": result["id"], **reviewer_data}
+        existing = db_cursor.fetchone()
+
+        if existing:
+            # Update permission flags - ENABLE ALL permissions so reviewer
+            # can act in any role (technical, commercial, management)
+            # This prevents test interference when using shared Telegram ID
+            db_cursor.execute("""
+                UPDATE reviewers SET
+                    can_review_technical = TRUE,
+                    can_review_commercial = TRUE,
+                    can_approve_management = TRUE,
+                    is_active = TRUE
+                WHERE telegram_chat_id = %(telegram_chat_id)s
+            """, reviewer_data)
+            db_cursor.connection.commit()
+            # Return with all permissions enabled
+            return {
+                "id": existing["id"],
+                **reviewer_data,
+                "can_review_technical": True,
+                "can_review_commercial": True,
+                "can_approve_management": True,
+                "is_active": True
+            }
+        else:
+            # Insert new reviewer
+            db_cursor.execute("""
+                INSERT INTO reviewers (
+                    telegram_chat_id, telegram_username, name, email,
+                    role, department, can_review_technical, can_review_commercial,
+                    can_approve_management, is_active
+                ) VALUES (
+                    %(telegram_chat_id)s, %(telegram_username)s, %(name)s, %(email)s,
+                    %(role)s, %(department)s, %(can_review_technical)s, %(can_review_commercial)s,
+                    %(can_approve_management)s, %(is_active)s
+                )
+                RETURNING id
+            """, reviewer_data)
+            result = db_cursor.fetchone()
+            db_cursor.connection.commit()
+            return {"id": result["id"], **reviewer_data}
 
     return _create_reviewer
 
@@ -476,6 +527,9 @@ def cleanup_test_data(db_cursor):
     """
     Cleanup fixture to remove test data after tests.
     Call at the end of tests that create persistent data.
+
+    Note: Reviewers with the real REAL_TELEGRAM_CHAT_ID are preserved (not deleted)
+    since they're used for real Telegram message delivery.
     """
     created_bids = []
     created_reviewers = []
@@ -488,16 +542,36 @@ def cleanup_test_data(db_cursor):
 
     yield {"track_bid": _track_bid, "track_reviewer": _track_reviewer}
 
-    # Cleanup
+    # Cleanup bids first (they may reference reviewers)
     if created_bids:
+        # Clear current_reviewer_id references first
+        db_cursor.execute(
+            "UPDATE bids SET current_reviewer_id = NULL WHERE id = ANY(%s::uuid[])",
+            (created_bids,)
+        )
+        # Delete reviews associated with these bids
+        db_cursor.execute(
+            "DELETE FROM reviews WHERE bid_id = ANY(%s::uuid[])",
+            (created_bids,)
+        )
+        # Delete audit logs for these bids
+        db_cursor.execute(
+            "DELETE FROM audit_log WHERE entity_id = ANY(%s::uuid[])",
+            (created_bids,)
+        )
+        # Now delete the bids
         db_cursor.execute(
             "DELETE FROM bids WHERE id = ANY(%s::uuid[])",
             (created_bids,)
         )
+
+    # Only delete reviewers that are NOT using the real Telegram ID
     if created_reviewers:
         db_cursor.execute(
-            "DELETE FROM reviewers WHERE id = ANY(%s::uuid[])",
-            (created_reviewers,)
+            """DELETE FROM reviewers
+               WHERE id = ANY(%s::uuid[])
+               AND telegram_chat_id != %s""",
+            (created_reviewers, REAL_TELEGRAM_CHAT_ID)
         )
     db_cursor.connection.commit()
 
@@ -509,10 +583,13 @@ def cleanup_test_data(db_cursor):
 @pytest.fixture
 def assert_bid_status(db_cursor):
     """Helper to assert bid status in database."""
-    def _assert_status(bid_id: str, expected_status: str):
+    import time
+    def _assert_status(bid_id: str, expected_status: str, wait_seconds: int = 3):
+        # Wait for async workflow to complete
+        time.sleep(wait_seconds)
         db_cursor.execute(
-            "SELECT status FROM bids WHERE id = %s",
-            (bid_id,)
+            "SELECT status FROM bids WHERE id = %s::uuid",
+            (str(bid_id),)
         )
         result = db_cursor.fetchone()
         assert result is not None, f"Bid {bid_id} not found"
@@ -525,11 +602,14 @@ def assert_bid_status(db_cursor):
 @pytest.fixture
 def assert_review_decision(db_cursor):
     """Helper to assert review decision in database."""
-    def _assert_decision(bid_id: str, review_type: str, expected_decision: str):
+    import time
+    def _assert_decision(bid_id: str, review_type: str, expected_decision: str, wait_seconds: int = 3):
+        # Wait for async workflow to complete
+        time.sleep(wait_seconds)
         db_cursor.execute("""
             SELECT decision FROM reviews
-            WHERE bid_id = %s AND review_type = %s
-        """, (bid_id, review_type))
+            WHERE bid_id = %s::uuid AND review_type = %s
+        """, (str(bid_id), review_type))
         result = db_cursor.fetchone()
         assert result is not None, \
             f"Review not found for bid {bid_id}, type {review_type}"
@@ -542,11 +622,14 @@ def assert_review_decision(db_cursor):
 @pytest.fixture
 def assert_audit_log_exists(db_cursor):
     """Helper to assert audit log entry exists."""
-    def _assert_audit(entity_id: str, action: str):
+    import time
+    def _assert_audit(entity_id: str, action: str, wait_seconds: int = 3):
+        # Wait for async workflow to complete
+        time.sleep(wait_seconds)
         db_cursor.execute("""
             SELECT id FROM audit_log
-            WHERE entity_id = %s AND action = %s
-        """, (entity_id, action))
+            WHERE entity_id = %s::uuid AND action = %s
+        """, (str(entity_id), action))
         result = db_cursor.fetchone()
         assert result is not None, \
             f"Audit log not found for entity {entity_id}, action {action}"

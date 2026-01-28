@@ -145,8 +145,8 @@
       "position": [2000, 400],
       "credentials": {
         "telegramApi": {
-          "id": "tenderbirubot",
-          "name": "tenderbirubot"
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
         }
       },
       "continueOnFail": true

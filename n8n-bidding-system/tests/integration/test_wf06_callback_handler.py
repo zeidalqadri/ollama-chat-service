@@ -9,10 +9,14 @@ Webhook: Telegram Trigger (callback_query and message events)
 
 import pytest
 import httpx
+import time
 from uuid import uuid4
 import json
 
 pytestmark = [pytest.mark.integration, pytest.mark.wf06, pytest.mark.session9]
+
+# Workflow is async - need to wait for processing
+WORKFLOW_WAIT_SECONDS = 3
 
 
 # =============================================================================
@@ -68,10 +72,13 @@ class TestCallbackParsing:
         # Assert
         assert response.status_code == 200
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         db_cursor.execute("""
             SELECT decision FROM reviews
-            WHERE bid_id = %s AND review_type = 'TECHNICAL'
-        """, (bid["id"],))
+            WHERE bid_id = %s::uuid AND review_type = 'TECHNICAL'
+        """, (str(bid["id"]),))
 
         result = db_cursor.fetchone()
         assert result["decision"] == "APPROVED"
@@ -121,6 +128,9 @@ class TestCallbackParsing:
 
         # Assert
         assert response.status_code == 200
+
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
 
         # Should create conversation state awaiting reason
         db_cursor.execute("""
@@ -238,11 +248,14 @@ class TestApprovalFlow:
         # Assert
         assert response.status_code == 200
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         db_cursor.execute("""
             SELECT decision, decision_at, decision_reason
             FROM reviews
-            WHERE bid_id = %s AND review_type = 'TECHNICAL'
-        """, (bid["id"],))
+            WHERE bid_id = %s::uuid AND review_type = 'TECHNICAL'
+        """, (str(bid["id"]),))
 
         review = db_cursor.fetchone()
         assert review["decision"] == "APPROVED"
@@ -292,11 +305,14 @@ class TestApprovalFlow:
         # Assert
         assert response.status_code == 200
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         db_cursor.execute("""
             SELECT decision, reviewer_id, telegram_callback_id
             FROM approval_decisions
-            WHERE bid_id = %s
-        """, (bid["id"],))
+            WHERE bid_id = %s::uuid
+        """, (str(bid["id"]),))
 
         decision = db_cursor.fetchone()
         assert decision is not None
@@ -523,6 +539,9 @@ class TestRevisionFlow:
         # Assert
         assert response.status_code == 200
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         db_cursor.execute("""
             SELECT state_type, context_json, expires_at
             FROM conversation_state
@@ -653,11 +672,14 @@ class TestMessageWithReason:
         # Assert
         assert response.status_code == 200
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         db_cursor.execute("""
             SELECT decision, decision_reason, revision_count
             FROM reviews
-            WHERE bid_id = %s AND review_type = 'COMMERCIAL'
-        """, (bid["id"],))
+            WHERE bid_id = %s::uuid AND review_type = 'COMMERCIAL'
+        """, (str(bid["id"]),))
 
         review = db_cursor.fetchone()
         assert review["decision"] == "REVISION_REQUESTED"
@@ -827,11 +849,14 @@ class TestEdgeCases:
         # Act
         response = n8n_client.post("/telegram-callback", json=callback_payload)
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         # Assert - Review should not be changed
         db_cursor.execute("""
             SELECT decision FROM reviews
-            WHERE bid_id = %s AND review_type = 'COMMERCIAL'
-        """, (bid["id"],))
+            WHERE bid_id = %s::uuid AND review_type = 'COMMERCIAL'
+        """, (str(bid["id"]),))
 
         review = db_cursor.fetchone()
         # Either workflow rejects or review stays PENDING

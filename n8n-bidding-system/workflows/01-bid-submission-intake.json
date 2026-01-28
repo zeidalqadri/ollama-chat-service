@@ -1,5 +1,6 @@
 {
   "name": "01 - Bid Submission Intake",
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -97,8 +98,8 @@
       "position": [900, 400],
       "credentials": {
         "telegramApi": {
-          "id": "tenderbirubot",
-          "name": "tenderbirubot"
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
         }
       },
       "continueOnFail": true
