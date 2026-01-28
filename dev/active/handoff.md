@@ -1,111 +1,158 @@
-# Handoff Document - BÖRAK Session 2026-01-25
+# Session Handoff - 2026-01-28 Session 11 (BÖRAK UI Improvements)
 
-## Quick Resume
+**Last Updated**: 2026-01-28 10:45 MYT
+
+## What Was Being Worked On
+
+**Task**: BÖRAK Webapp UI/UX Improvements - iOS Polish Audit
+
+**State When Completed**: All requested UI changes implemented, tested with Playwright, and deployed to production VPS.
+
+## Accomplishments This Session
+
+### 1. Fixed Static Asset Paths
+- **Issue**: CSS/JS 404 errors when accessing via nginx reverse proxy
+- **Root Cause**: Relative paths `static/...` broke when accessed via `/borak01/` proxy path
+- **Decision**: Keep relative paths (not absolute `/static/`) - works correctly with reverse proxy
+- **Files**: `static/index.html` - all asset hrefs/srcs
+
+### 2. Simplified Sidebar UI (Per User Request)
+**Removed:**
+- Model description display below dropdown (now tooltip on hover)
+- "Attach Image" section (redundant - clip icon exists in chat input)
+- "Actions" section with Clear Chat button
+- "Local Inference • Secure" status text
+
+**Added:**
+- Copy chat icon in chat header
+- Clear chat (X) icon in chat header
+- Sidebar toggle button in chat header
+
+### 3. Collapsible Panels
+- **Left sidebar**: Collapses to 0px, toggle in chat header
+- **Right artifacts panel**: Collapses to 48px, keeps toggle button visible
+- **CSS**: Smooth transitions with width animation
+
+### 4. Improved Sidebar Layout
+- Sessions list now expands to fill available space (flex: 1)
+- Model dropdown pushed to bottom near "Connected"
+- Removed empty space issue
+
+### 5. Fixed Image Upload Preview
+- **Issue**: Uploaded image took over entire chat area
+- **Fix**: Added CSS for 64x64 thumbnail with object-fit: cover
+- **Location**: `.inline-image-preview` styles in `style-ive.css`
+
+## Files Modified
+
+| File | Changes |
+|------|---------|
+| `static/index.html` | Simplified sidebar, added chat header icons, canvas panel id |
+| `static/style-ive.css` | +227 lines: header icons, collapsible panels, thumbnail preview |
+| `static/app.js` | -108 lines: removed sidebar upload handlers, added toggle/copy handlers |
+
+## Key CSS Classes Added
+
+```css
+.header-icon-btn          /* 32x32 icon buttons in headers */
+.chat-header-actions      /* Container for copy/clear icons */
+.canvas-header-actions    /* Container for download/toggle buttons */
+.sidebar.collapsed        /* Width: 0, content hidden */
+.canvas-panel.collapsed   /* Width: 48px, only toggle visible */
+.inline-image-preview     /* 64x64 thumbnail container */
+.inline-image-preview img /* object-fit: cover */
+.inline-remove-btn        /* Red circular X button on thumbnail */
+```
+
+## Playwright Test Results
+
+All tests passed:
+- ✅ CSS loads correctly
+- ✅ Sidebar collapse (280px → 0px)
+- ✅ Canvas collapse (320px → 48px, toggle stays visible)
+- ✅ Canvas expand back works
+- ✅ Sessions list has flex-grow: 1
+- ✅ Mobile responsive
+
+## Deployment Status
+
+All changes deployed to VPS:
+```bash
+scp -P 1511 static/{index.html,style-ive.css,app.js} root@45.159.230.42:/opt/ollama-ui/static/
+```
+
+**Live at**: https://alumist.alumga.com/borak01/
+
+## Uncommitted Changes (Need to Commit)
 
 ```bash
-# Verify deployment
-curl -s http://45.159.230.42:8501/_stcore/health
+# BÖRAK UI changes
+static/app.js
+static/index.html
+static/style-ive.css
 
-# SSH to VPS (note: port 1511, NOT 22)
-ssh -p 1511 root@45.159.230.42
-
-# Restart service if needed
-ssh -p 1511 root@45.159.230.42 "fuser -k 8501/tcp; cd /opt/ollama-ui && source venv/bin/activate && nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true &"
+# TenderBiru tests (from previous session)
+n8n-bidding-system/tests/**
+n8n-bidding-system/workflows/**
 ```
 
-## Current State
+## Commands to Commit & Push
 
-| Item | Status |
-|------|--------|
-| **Latest Commit** | `2ada959` - fix(ui): resolve overlay issues and ghost login panels |
-| **Previous Commit** | `cad18df` - docs: expand CLAUDE.md with architecture |
-| **Deployed** | Yes, running on VPS with latest code |
-| **GitHub** | Pushed, in sync with local |
-| **Health** | OK |
+```bash
+# Commit BÖRAK UI changes
+git add static/app.js static/index.html static/style-ive.css
+git commit -m "feat(ui): simplify BÖRAK sidebar and add collapsible panels
 
-## What Changed This Session
+- Remove model description (now tooltip), attach image section, actions section
+- Add copy/clear icons to chat header, sidebar/canvas toggle buttons
+- Make both sidebars collapsible with smooth animations
+- Fix image upload to show 64x64 thumbnail instead of fullscreen
+- Improve sessions list layout with flex-grow
 
-### Commit 1: `cad18df` - CLAUDE.md Update
-- Added architecture diagram showing background thread pattern
-- Added critical warning about canvas_col indentation bug
-- Added known issues & fixes table
-- Added app.py structure with line references
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 
-### Commit 2: `2ada959` - UI Overlay Fixes
-| Fix | Details |
-|-----|---------|
-| Panel toggle position | Changed `left: 0.75rem` → `left: calc(280px + 0.75rem)` to not overlay sidebar |
-| CONNECTED badge | Moved from `position: fixed` to inline inside sidebar |
-| Ghost login forms | Added `login-page`/`chat-page` body classes via JS |
-| Form CSS scoping | Changed from global `[data-testid="stForm"]` to `.login-page [data-testid="stForm"]` |
-| Toggle on login | Hidden via `.login-page #panel-toggle { display: none }` |
-
-## Key Code Locations
-
-| Feature | Location | Notes |
-|---------|----------|-------|
-| Page class JS function | app.py:673-705 | `get_page_js()` returns login-page or chat-page |
-| JS injection | app.py:724 | Called after session state init |
-| Panel toggle CSS | app.py:147-183 | Includes login-page hiding |
-| Form CSS scoping | app.py:61-70 | Only `.login-page` gets form brackets |
-| CONNECTED badge | app.py:845-851 | Now inside sidebar, not fixed |
-| Column layout | app.py:854 | `chat_col, canvas_col = st.columns([3, 2])` |
-
-## ⚠️ CRITICAL WARNINGS
-
-### 1. Indentation Bug (Fixed Twice!)
-```python
-# Lines ~856 and ~932 MUST have same indent (4 spaces)
-    with chat_col:    # 4 spaces
-        ...
-    with canvas_col:  # 4 spaces - SAME LEVEL!
-        ...
-```
-If `canvas_col` has 8 spaces, it nests inside `chat_col` and breaks layout.
-
-### 2. SSH Port
-VPS uses port **1511**, not 22!
-
-### 3. Page Class Injection
-The `get_page_js()` function must be called AFTER session state initialization but BEFORE rendering any content.
-
-## Test Checklist
-
-1. **Login page**: No panel toggle button visible
-2. **After login**: Panel toggle appears to right of sidebar (not overlapping)
-3. **Chat area**: No ghost login form elements
-4. **CONNECTED badge**: At bottom of sidebar content, not floating
-5. **Generation**: Messages generate and display correctly
-
-## Architecture Summary
-
-```
-Browser ←WebSocket→ Streamlit (port 8501)
-                         ↓
-                    app.py
-                         ├── get_page_js() → Injects login-page/chat-page class
-                         ├── Background Thread (daemon)
-                         │   └── Writes to gen_{user_id}.json
-                         ├── Main Thread
-                         │   └── Polls JSON file every 0.5s
-                         ├── ChromaDB (chroma_db/)
-                         ├── SQLite (users.db)
-                         └── Ollama API (localhost:11434)
+# Push
+git push origin master
 ```
 
-## Pending Work (Next Session)
+## Next Session Priorities
 
-| Priority | Task |
-|----------|------|
-| HIGH | Test background generation recovery by refreshing mid-generation |
-| MEDIUM | Test vision models with actual image uploads |
-| MEDIUM | Add STOP button to cancel long generations |
-| LOW | Add conversation export feature |
+1. **Commit changes** - UI changes are deployed but not committed
+2. **TenderBiru tests** - Previous session's test improvements need commit
+3. **Image upload UX** - Consider adding loading indicator while uploading
 
-## Session Stats
+## Key Files
 
-- Session: Jan 25, 2026
-- Commits: 2 (CLAUDE.md update + UI overlay fixes)
-- Files modified: 2 (CLAUDE.md, app.py)
-- Bugs fixed: 4 (panel overlay, badge overlay, ghost forms, toggle on login)
-- Deployed & pushed: ✅
+| File | Purpose |
+|------|---------|
+| `static/index.html` | BÖRAK main HTML structure |
+| `static/style-ive.css` | iOS-inspired stylesheet |
+| `static/app.js` | Client-side JavaScript |
+| `main.py` | FastAPI backend |
+
+## VPS Info
+
+| Item | Value |
+|------|-------|
+| IP | 45.159.230.42 |
+| SSH Port | **1511** (not 22!) |
+| BÖRAK Port | 8012 |
+| BÖRAK URL | https://alumist.alumga.com/borak01/ |
+
+---
+
+# Previous Session Context (TenderBiru - Session 10)
+
+## TenderBiru Test Status
+
+| Suite | Pass | Fail |
+|-------|------|------|
+| WF01 Bid Submission | 7/7 | 0 |
+| WF02 AI Analysis | 7/7 | 0 |
+| WF03-WF10 | 23 | 41 |
+
+## Critical Knowledge
+
+1. **n8n Schema**: Use `n8n.workflow_entity` NOT `public.workflow_entity`
+2. **Before Tests**: `pm2 restart alumist-n8n && sleep 15`
+3. **Model**: Testing uses `qwen2.5-coder:7b`, production uses `qwen3-coder:30b`

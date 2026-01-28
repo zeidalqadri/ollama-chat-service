@@ -74,12 +74,10 @@ const elements = {
     modelSelect: document.getElementById('model-select'),
     visionBadge: document.getElementById('vision-badge'),
     translationBadge: document.getElementById('translation-badge'),
-    imageInput: document.getElementById('image-input'),
-    fileUpload: document.getElementById('file-upload'),
-    imagePreview: document.getElementById('image-preview'),
-    previewImg: document.getElementById('preview-img'),
-    removeImage: document.getElementById('remove-image'),
     clearChat: document.getElementById('clear-chat'),
+    copyChatBtn: document.getElementById('copy-chat-btn'),
+    sidebarToggle: document.getElementById('sidebar-toggle'),
+    canvasToggle: document.getElementById('canvas-toggle'),
     logoutBtn: document.getElementById('logout-btn'),
 
     // Sessions
@@ -526,12 +524,14 @@ function populateModels() {
         // Find metadata for this model
         const meta = state.modelsMeta.find(m => m.id === model);
         if (meta && meta.origin) {
-            // Show: 🇺🇸 gemma2:9b → analyze, review
+            // Clean display: origin emoji + model name only
+            // Tender stages shown in model-info for hierarchy
+            option.textContent = `${meta.origin}  ${model}`;
+            // Full context in tooltip
             const stages = meta.tender_stages?.length > 0
-                ? ` → ${meta.tender_stages.join(', ')}`
+                ? `Stages: ${meta.tender_stages.join(', ')}`
                 : '';
-            option.textContent = `${meta.origin} ${model}${stages}`;
-            option.title = meta.description || '';
+            option.title = [meta.description, stages].filter(Boolean).join(' • ');
         } else {
             option.textContent = model;
         }
@@ -542,21 +542,6 @@ function populateModels() {
     });
     updateVisionBadge();
     updateTranslationBadge();
-    updateModelDescription();
-}
-
-function updateModelDescription() {
-    // Update model info display if element exists
-    const infoEl = document.getElementById('model-info');
-    if (!infoEl) return;
-
-    const meta = state.modelsMeta.find(m => m.id === state.selectedModel);
-    if (meta && meta.description) {
-        infoEl.textContent = `${meta.origin} ${meta.description}`;
-        infoEl.classList.remove('hidden');
-    } else {
-        infoEl.classList.add('hidden');
-    }
 }
 
 function updateVisionBadge() {
@@ -1175,39 +1160,6 @@ elements.modelSelect.addEventListener('change', () => {
     state.selectedModel = elements.modelSelect.value;
     updateVisionBadge();
     updateTranslationBadge();
-    updateModelDescription();
-});
-
-// Image upload
-elements.fileUpload.addEventListener('click', () => {
-    elements.imageInput.click();
-});
-
-elements.imageInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const base64 = event.target.result.split(',')[1];
-            state.uploadedImage = base64;
-            elements.previewImg.src = event.target.result;
-            elements.imagePreview.classList.remove('hidden');
-            elements.fileUpload.classList.add('hidden');
-            // Also update inline preview
-            if (elements.inlinePreviewImg) {
-                elements.inlinePreviewImg.src = event.target.result;
-                elements.inlineImagePreview.classList.remove('hidden');
-            }
-            if (elements.attachBtn) {
-                elements.attachBtn.classList.add('has-image');
-            }
-        };
-        reader.readAsDataURL(file);
-    }
-});
-
-elements.removeImage.addEventListener('click', () => {
-    clearUploadedImage();
 });
 
 // Inline image upload (next to chat input)
@@ -1259,10 +1211,6 @@ if (elements.inlineRemoveImage) {
 // Helper to clear uploaded image from all locations
 function clearUploadedImage() {
     state.uploadedImage = null;
-    // Clear sidebar upload
-    if (elements.imageInput) elements.imageInput.value = '';
-    if (elements.imagePreview) elements.imagePreview.classList.add('hidden');
-    if (elements.fileUpload) elements.fileUpload.classList.remove('hidden');
     // Clear inline upload
     if (elements.inlineImageInput) elements.inlineImageInput.value = '';
     if (elements.inlineImagePreview) elements.inlineImagePreview.classList.add('hidden');
@@ -1278,13 +1226,47 @@ elements.loadMoreSessions.addEventListener('click', async () => {
 });
 
 // Clear chat
-elements.clearChat.addEventListener('click', async () => {
-    if (await clearChatHistory(state.currentSessionId)) {
-        state.artifacts = { code: [], thought: [], explanation: [] };
-        renderMessages();
-        renderArtifacts();
-    }
-});
+if (elements.clearChat) {
+    elements.clearChat.addEventListener('click', async () => {
+        if (await clearChatHistory(state.currentSessionId)) {
+            state.artifacts = { code: [], thought: [], explanation: [] };
+            renderMessages();
+            renderArtifacts();
+        }
+    });
+}
+
+// Copy chat conversation
+if (elements.copyChatBtn) {
+    elements.copyChatBtn.addEventListener('click', () => {
+        const conversation = state.messages.map(m =>
+            `${m.role.toUpperCase()}:\n${m.content}`
+        ).join('\n\n---\n\n');
+        navigator.clipboard.writeText(conversation).then(() => {
+            elements.copyChatBtn.style.color = 'var(--accent)';
+            setTimeout(() => {
+                elements.copyChatBtn.style.color = '';
+            }, 1000);
+        });
+    });
+}
+
+// Sidebar toggle (collapse/expand)
+if (elements.sidebarToggle) {
+    elements.sidebarToggle.addEventListener('click', () => {
+        elements.sidebar.classList.toggle('collapsed');
+    });
+}
+
+// Canvas panel toggle (collapse/expand)
+if (elements.canvasToggle) {
+    elements.canvasToggle.addEventListener('click', () => {
+        const canvasPanel = document.getElementById('canvas-panel');
+        if (canvasPanel) {
+            canvasPanel.classList.toggle('collapsed');
+        }
+    });
+}
 
 // Logout
 elements.logoutBtn.addEventListener('click', async () => {
