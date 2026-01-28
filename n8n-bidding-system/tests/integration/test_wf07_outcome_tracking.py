@@ -4,13 +4,17 @@ Integration Tests: WF07 - Outcome Tracking Workflow
 TDD tests for recording bid outcomes (WON/LOST/NO_DECISION).
 Tests verify status updates, lessons learned generation, and notifications.
 
-Webhook: POST /webhook/outcome-tracking
+Webhook: POST /webhook/outcome
 """
 
 import pytest
 import httpx
+import time
 
-pytestmark = [pytest.mark.integration, pytest.mark.wf07]
+pytestmark = [pytest.mark.integration, pytest.mark.wf07, pytest.mark.session9]
+
+# Workflow is async - need to wait for processing
+WORKFLOW_WAIT_SECONDS = 3
 
 
 # =============================================================================
@@ -37,7 +41,7 @@ class TestStatusUpdates:
         cleanup_test_data["track_bid"](bid["id"])
 
         # Act
-        response = n8n_client.post("/outcome-tracking", json={
+        response = n8n_client.post("/outcome", json={
             "bid_id": bid["id"],
             "reference_number": bid["reference_number"],
             "outcome": "WON",
@@ -65,7 +69,7 @@ class TestStatusUpdates:
         cleanup_test_data["track_bid"](bid["id"])
 
         # Act
-        response = n8n_client.post("/outcome-tracking", json={
+        response = n8n_client.post("/outcome", json={
             "bid_id": bid["id"],
             "reference_number": bid["reference_number"],
             "outcome": "LOST",
@@ -94,7 +98,7 @@ class TestStatusUpdates:
         cleanup_test_data["track_bid"](bid["id"])
 
         # Act
-        response = n8n_client.post("/outcome-tracking", json={
+        response = n8n_client.post("/outcome", json={
             "bid_id": bid["id"],
             "reference_number": bid["reference_number"],
             "outcome": "NO_DECISION"
@@ -130,7 +134,7 @@ class TestLessonsLearned:
         cleanup_test_data["track_bid"](bid["id"])
 
         # Act
-        response = n8n_client.post("/outcome-tracking", json={
+        response = n8n_client.post("/outcome", json={
             "bid_id": bid["id"],
             "reference_number": bid["reference_number"],
             "outcome": "WON"
@@ -139,10 +143,13 @@ class TestLessonsLearned:
         # Assert
         assert response.status_code == 200
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         # Lessons may be generated async, check if table updated
         db_cursor.execute("""
-            SELECT id FROM lessons_learned WHERE bid_id = %s
-        """, (bid["id"],))
+            SELECT id FROM lessons_learned WHERE bid_id = %s::uuid
+        """, (str(bid["id"]),))
 
         # May not be immediate, but should eventually exist
         # This test documents expected behavior
@@ -163,7 +170,7 @@ class TestLessonsLearned:
         cleanup_test_data["track_bid"](bid["id"])
 
         # Act
-        response = n8n_client.post("/outcome-tracking", json={
+        response = n8n_client.post("/outcome", json={
             "bid_id": bid["id"],
             "reference_number": bid["reference_number"],
             "outcome": "LOST",
@@ -174,11 +181,14 @@ class TestLessonsLearned:
         # Assert
         assert response.status_code == 200
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         # Give async processes time if needed
         db_cursor.execute("""
             SELECT outcome, key_factors, ai_analysis
-            FROM lessons_learned WHERE bid_id = %s
-        """, (bid["id"],))
+            FROM lessons_learned WHERE bid_id = %s::uuid
+        """, (str(bid["id"]),))
 
         result = db_cursor.fetchone()
         if result:
@@ -208,7 +218,7 @@ class TestWinAnnouncements:
         cleanup_test_data["track_bid"](bid["id"])
 
         # Act
-        response = n8n_client.post("/outcome-tracking", json={
+        response = n8n_client.post("/outcome", json={
             "bid_id": bid["id"],
             "reference_number": bid["reference_number"],
             "outcome": "WON",
@@ -218,11 +228,14 @@ class TestWinAnnouncements:
         # Assert
         assert response.status_code == 200
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         # Check notification was sent (may be to wins group)
         db_cursor.execute("""
             SELECT notification_type FROM telegram_notifications
-            WHERE bid_id = %s
-        """, (bid["id"],))
+            WHERE bid_id = %s::uuid
+        """, (str(bid["id"]),))
 
         notifications = db_cursor.fetchall()
         # Should have win announcement or similar
@@ -254,7 +267,7 @@ class TestContractValue:
         actual_value = 175000.00
 
         # Act
-        response = n8n_client.post("/outcome-tracking", json={
+        response = n8n_client.post("/outcome", json={
             "bid_id": bid["id"],
             "reference_number": bid["reference_number"],
             "outcome": "WON",
@@ -264,9 +277,12 @@ class TestContractValue:
         # Assert
         assert response.status_code == 200
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         db_cursor.execute("""
-            SELECT actual_contract_value FROM bids WHERE id = %s
-        """, (bid["id"],))
+            SELECT actual_contract_value FROM bids WHERE id = %s::uuid
+        """, (str(bid["id"]),))
 
         result = db_cursor.fetchone()
         if result["actual_contract_value"] is not None:
@@ -291,7 +307,7 @@ class TestContractValue:
         competitor = "TechCorp Solutions"
 
         # Act
-        response = n8n_client.post("/outcome-tracking", json={
+        response = n8n_client.post("/outcome", json={
             "bid_id": bid["id"],
             "reference_number": bid["reference_number"],
             "outcome": "LOST",
@@ -302,9 +318,12 @@ class TestContractValue:
         # Assert
         assert response.status_code == 200
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         db_cursor.execute("""
-            SELECT loss_reason, competitor_won FROM bids WHERE id = %s
-        """, (bid["id"],))
+            SELECT loss_reason, competitor_won FROM bids WHERE id = %s::uuid
+        """, (str(bid["id"]),))
 
         result = db_cursor.fetchone()
         assert result["loss_reason"] == loss_reason

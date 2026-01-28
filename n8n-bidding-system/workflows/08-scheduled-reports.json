@@ -1,5 +1,6 @@
 {
   "name": "08 - Scheduled Reports & Escalations",
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -114,8 +115,8 @@
       "position": [1120, 300],
       "credentials": {
         "telegramApi": {
-          "id": "tenderbirubot",
-          "name": "tenderbirubot"
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
         }
       }
     },
@@ -160,8 +161,8 @@
       "position": [1560, 200],
       "credentials": {
         "telegramApi": {
-          "id": "tenderbirubot",
-          "name": "tenderbirubot"
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
         }
       }
     },
@@ -242,8 +243,8 @@
       "position": [900, 650],
       "credentials": {
         "telegramApi": {
-          "id": "tenderbirubot",
-          "name": "tenderbirubot"
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
         }
       }
     },

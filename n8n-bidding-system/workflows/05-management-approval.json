@@ -1,5 +1,6 @@
 {
   "name": "05 - Management Approval Workflow",
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -113,7 +114,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO reviews (\n  bid_id, review_type, assigned_to, assigned_at, due_at, sla_hours\n) VALUES (\n  $1, 'MANAGEMENT', $2, NOW(), NOW() + INTERVAL '24 hours', 24\n)\nON CONFLICT (bid_id, review_type) DO UPDATE SET\n  assigned_to = $2,\n  assigned_at = NOW(),\n  due_at = NOW() + INTERVAL '24 hours',\n  decision = 'PENDING',\n  sla_breached = FALSE\nRETURNING id, due_at",
         "options": {
-          "queryReplacement": "={{ [\n  $('Parse Assessment').first().json.bid.id,\n  $('Get Management Approver').first().json.id\n] }}"
+          "queryReplacement": "={{ [$('Parse Assessment').first().json.bid.id, $('Get Management Approver').first().json.id] }}"
         }
       },
       "id": "postgres-create-review",
@@ -133,7 +134,7 @@
         "operation": "executeQuery",
         "query": "UPDATE bids SET\n  status = 'MGMT_APPROVAL',\n  current_reviewer_id = $1,\n  updated_at = NOW()\nWHERE id = $2",
         "options": {
-          "queryReplacement": "={{ [\n  $('Get Management Approver').first().json.id,\n  $('Parse Assessment').first().json.bid.id\n] }}"
+          "queryReplacement": "={{ [$('Get Management Approver').first().json.id, $('Parse Assessment').first().json.bid.id] }}"
         }
       },
       "id": "postgres-update-status",
@@ -188,8 +189,8 @@
       "position": [1780, 200],
       "credentials": {
         "telegramApi": {
-          "id": "tenderbirubot",
-          "name": "tenderbirubot"
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
         }
       }
     },
@@ -198,7 +199,7 @@
         "operation": "executeQuery",
         "query": "UPDATE reviews SET\n  notification_message_id = $1,\n  notification_chat_id = $2\nWHERE id = $3",
         "options": {
-          "queryReplacement": "={{ [\n  $json.message_id,\n  $json.chat.id,\n  $('Create Review Record').first().json.id\n] }}"
+          "queryReplacement": "={{ [$json.message_id, $('Get Management Approver').first().json.telegram_chat_id, $('Create Review Record').first().json.id] }}"
         }
       },
       "id": "postgres-update-message",
@@ -227,8 +228,8 @@
       "position": [1560, 480],
       "credentials": {
         "telegramApi": {
-          "id": "tenderbirubot",
-          "name": "tenderbirubot"
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
         }
       }
     }

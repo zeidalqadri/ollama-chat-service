@@ -9,10 +9,14 @@ Webhook: POST /webhook/harmony-ingest
 
 import pytest
 import httpx
+import time
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
-pytestmark = [pytest.mark.integration, pytest.mark.wf09]
+pytestmark = [pytest.mark.integration, pytest.mark.wf09, pytest.mark.session9]
+
+# Workflow is async - need to wait for processing
+WORKFLOW_WAIT_SECONDS = 3
 
 
 # =============================================================================
@@ -78,7 +82,7 @@ class TestSourceValidation:
     @pytest.mark.vps
     def test_ingest_validates_source(
         self,
-        n8n_client: httpx.Client
+        harmony_client: httpx.Client
     ):
         """
         RED: Invalid source returns validation error.
@@ -89,7 +93,7 @@ class TestSourceValidation:
         }
 
         # Act
-        response = n8n_client.post("/harmony-ingest", json=invalid_payload)
+        response = harmony_client.post("/ingest", json=invalid_payload)
 
         # Assert - Should fail validation or handle gracefully
         assert response.status_code in [200, 400, 422]
@@ -101,14 +105,14 @@ class TestSourceValidation:
     @pytest.mark.vps
     def test_ingest_accepts_valid_sources(
         self,
-        n8n_client: httpx.Client,
+        harmony_client: httpx.Client,
         sample_tender_payload
     ):
         """
         RED: Valid sources (smartgep, eperolehan, mytender) are accepted.
         """
         # Act
-        response = n8n_client.post("/harmony-ingest", json=sample_tender_payload)
+        response = harmony_client.post("/ingest", json=sample_tender_payload)
 
         # Assert
         assert response.status_code == 200
@@ -124,7 +128,7 @@ class TestTenderStorage:
     @pytest.mark.vps
     def test_ingest_stores_tenders(
         self,
-        n8n_client: httpx.Client,
+        harmony_client: httpx.Client,
         db_cursor,
         sample_tender_payload
     ):
@@ -134,7 +138,7 @@ class TestTenderStorage:
         Note: May be stored in raw_tenders table or directly as bids.
         """
         # Act
-        response = n8n_client.post("/harmony-ingest", json=sample_tender_payload)
+        response = harmony_client.post("/ingest", json=sample_tender_payload)
 
         # Assert
         assert response.status_code == 200
@@ -155,7 +159,7 @@ class TestDeduplication:
     @pytest.mark.vps
     def test_ingest_deduplicates(
         self,
-        n8n_client: httpx.Client,
+        harmony_client: httpx.Client,
         db_cursor,
         sample_tender_payload
     ):
@@ -163,11 +167,11 @@ class TestDeduplication:
         RED: Duplicate tenders (same external_id) are updated, not duplicated.
         """
         # Arrange - First ingest
-        response1 = n8n_client.post("/harmony-ingest", json=sample_tender_payload)
+        response1 = harmony_client.post("/ingest", json=sample_tender_payload)
         assert response1.status_code == 200
 
         # Act - Second ingest with same data
-        response2 = n8n_client.post("/harmony-ingest", json=sample_tender_payload)
+        response2 = harmony_client.post("/ingest", json=sample_tender_payload)
 
         # Assert
         assert response2.status_code == 200
@@ -184,7 +188,7 @@ class TestEmptyResults:
     @pytest.mark.vps
     def test_ingest_empty_triggers_troubleshoot(
         self,
-        n8n_client: httpx.Client
+        harmony_client: httpx.Client
     ):
         """
         RED: Empty tender list triggers BORAK troubleshooting.
@@ -197,7 +201,7 @@ class TestEmptyResults:
         }
 
         # Act
-        response = n8n_client.post("/harmony-ingest", json=empty_payload)
+        response = harmony_client.post("/ingest", json=empty_payload)
 
         # Assert - Should handle gracefully
         assert response.status_code == 200
@@ -207,14 +211,14 @@ class TestEmptyResults:
     @pytest.mark.vps
     def test_ingest_recovery_succeeds(
         self,
-        n8n_client: httpx.Client,
+        harmony_client: httpx.Client,
         sample_tender_mytender
     ):
         """
         RED: After troubleshooting, recovered data is saved.
         """
         # Act - Normal ingest with data
-        response = n8n_client.post("/harmony-ingest", json=sample_tender_mytender)
+        response = harmony_client.post("/ingest", json=sample_tender_mytender)
 
         # Assert
         assert response.status_code == 200
@@ -230,7 +234,7 @@ class TestDataValidation:
     @pytest.mark.vps
     def test_ingest_validates_required_fields(
         self,
-        n8n_client: httpx.Client
+        harmony_client: httpx.Client
     ):
         """
         RED: Tenders missing required fields are handled.
@@ -247,7 +251,7 @@ class TestDataValidation:
         }
 
         # Act
-        response = n8n_client.post("/harmony-ingest", json=incomplete_payload)
+        response = harmony_client.post("/ingest", json=incomplete_payload)
 
         # Assert - Should handle gracefully (skip or error)
         assert response.status_code in [200, 400, 422]
@@ -255,7 +259,7 @@ class TestDataValidation:
     @pytest.mark.vps
     def test_ingest_handles_past_deadline(
         self,
-        n8n_client: httpx.Client
+        harmony_client: httpx.Client
     ):
         """
         RED: Tenders with past deadlines are filtered or flagged.
@@ -274,7 +278,7 @@ class TestDataValidation:
         }
 
         # Act
-        response = n8n_client.post("/harmony-ingest", json=past_deadline_payload)
+        response = harmony_client.post("/ingest", json=past_deadline_payload)
 
         # Assert - Should handle (filter out or mark as expired)
         assert response.status_code == 200

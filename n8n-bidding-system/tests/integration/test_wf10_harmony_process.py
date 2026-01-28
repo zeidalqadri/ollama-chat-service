@@ -9,10 +9,14 @@ Webhook: POST /webhook/harmony-process
 
 import pytest
 import httpx
+import time
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
-pytestmark = [pytest.mark.integration, pytest.mark.wf10]
+pytestmark = [pytest.mark.integration, pytest.mark.wf10, pytest.mark.session9]
+
+# Workflow is async - need to wait for processing
+WORKFLOW_WAIT_SECONDS = 3
 
 
 # =============================================================================
@@ -76,14 +80,14 @@ class TestDateNormalization:
     @pytest.mark.vps
     def test_process_normalizes_dates(
         self,
-        n8n_client: httpx.Client,
+        harmony_client: httpx.Client,
         sample_raw_tender
     ):
         """
         RED: Malaysian date format DD/MM/YYYY is normalized to ISO format.
         """
         # Act
-        response = n8n_client.post("/harmony-process", json=sample_raw_tender)
+        response = harmony_client.post("/process", json=sample_raw_tender)
 
         # Assert
         assert response.status_code == 200
@@ -97,7 +101,7 @@ class TestDateNormalization:
     @pytest.mark.vps
     def test_process_handles_various_date_formats(
         self,
-        n8n_client: httpx.Client
+        harmony_client: httpx.Client
     ):
         """
         RED: Various date formats are handled correctly.
@@ -119,7 +123,7 @@ class TestDateNormalization:
                 **date_data
             }
 
-            response = n8n_client.post("/harmony-process", json=tender)
+            response = harmony_client.post("/process", json=tender)
             # Should handle all formats
             assert response.status_code in [200, 400]
 
@@ -134,14 +138,14 @@ class TestPriorityScoring:
     @pytest.mark.vps
     def test_process_calculates_priority(
         self,
-        n8n_client: httpx.Client,
+        harmony_client: httpx.Client,
         sample_raw_tender
     ):
         """
         RED: Priority score is calculated based on value and deadline.
         """
         # Act
-        response = n8n_client.post("/harmony-process", json=sample_raw_tender)
+        response = harmony_client.post("/process", json=sample_raw_tender)
 
         # Assert
         assert response.status_code == 200
@@ -153,7 +157,7 @@ class TestPriorityScoring:
     @pytest.mark.vps
     def test_process_high_value_increases_priority(
         self,
-        n8n_client: httpx.Client,
+        harmony_client: httpx.Client,
         sample_high_priority_tender,
         sample_low_priority_tender
     ):
@@ -161,8 +165,8 @@ class TestPriorityScoring:
         RED: Higher value tenders get higher priority scores.
         """
         # Act
-        response_high = n8n_client.post("/harmony-process", json=sample_high_priority_tender)
-        response_low = n8n_client.post("/harmony-process", json=sample_low_priority_tender)
+        response_high = harmony_client.post("/process", json=sample_high_priority_tender)
+        response_low = harmony_client.post("/process", json=sample_low_priority_tender)
 
         # Assert
         assert response_high.status_code == 200
@@ -174,7 +178,7 @@ class TestPriorityScoring:
     @pytest.mark.vps
     def test_process_close_deadline_increases_priority(
         self,
-        n8n_client: httpx.Client
+        harmony_client: httpx.Client
     ):
         """
         RED: Tenders with closer deadlines get higher urgency scores.
@@ -198,8 +202,8 @@ class TestPriorityScoring:
         }
 
         # Act
-        response_close = n8n_client.post("/harmony-process", json=close_deadline)
-        response_far = n8n_client.post("/harmony-process", json=far_deadline)
+        response_close = harmony_client.post("/process", json=close_deadline)
+        response_far = harmony_client.post("/process", json=far_deadline)
 
         # Assert
         assert response_close.status_code == 200
@@ -216,7 +220,7 @@ class TestBidSubmissionTriggering:
     @pytest.mark.vps
     def test_process_triggers_submission(
         self,
-        n8n_client: httpx.Client,
+        harmony_client: httpx.Client,
         db_cursor,
         sample_raw_tender
     ):
@@ -224,7 +228,7 @@ class TestBidSubmissionTriggering:
         RED: Processing tender triggers bid submission workflow.
         """
         # Act
-        response = n8n_client.post("/harmony-process", json=sample_raw_tender)
+        response = harmony_client.post("/process", json=sample_raw_tender)
 
         # Assert
         assert response.status_code == 200
@@ -233,10 +237,13 @@ class TestBidSubmissionTriggering:
         result = response.json()
         bid_id = result.get("bid_id")
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         if bid_id:
             db_cursor.execute(
-                "SELECT id, title, source FROM bids WHERE id = %s",
-                (bid_id,)
+                "SELECT id, title, source FROM bids WHERE id = %s::uuid",
+                (str(bid_id),)
             )
             bid = db_cursor.fetchone()
             assert bid is not None
@@ -244,7 +251,7 @@ class TestBidSubmissionTriggering:
     @pytest.mark.vps
     def test_process_preserves_source_info(
         self,
-        n8n_client: httpx.Client,
+        harmony_client: httpx.Client,
         db_cursor,
         sample_raw_tender
     ):
@@ -252,7 +259,7 @@ class TestBidSubmissionTriggering:
         RED: Source information is preserved when creating bid.
         """
         # Act
-        response = n8n_client.post("/harmony-process", json=sample_raw_tender)
+        response = harmony_client.post("/process", json=sample_raw_tender)
 
         # Assert
         assert response.status_code == 200
@@ -260,10 +267,13 @@ class TestBidSubmissionTriggering:
         result = response.json()
         bid_id = result.get("bid_id")
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         if bid_id:
             db_cursor.execute(
-                "SELECT source, client_name FROM bids WHERE id = %s",
-                (bid_id,)
+                "SELECT source, client_name FROM bids WHERE id = %s::uuid",
+                (str(bid_id),)
             )
             bid = db_cursor.fetchone()
             # Source should match or be prefixed
@@ -281,7 +291,7 @@ class TestDataTransformation:
     @pytest.mark.vps
     def test_process_maps_fields_correctly(
         self,
-        n8n_client: httpx.Client,
+        harmony_client: httpx.Client,
         sample_raw_tender
     ):
         """
@@ -294,7 +304,7 @@ class TestDataTransformation:
         - title -> title
         """
         # Act
-        response = n8n_client.post("/harmony-process", json=sample_raw_tender)
+        response = harmony_client.post("/process", json=sample_raw_tender)
 
         # Assert
         assert response.status_code == 200
@@ -305,7 +315,7 @@ class TestDataTransformation:
     @pytest.mark.vps
     def test_process_generates_reference_number(
         self,
-        n8n_client: httpx.Client,
+        harmony_client: httpx.Client,
         db_cursor,
         sample_raw_tender
     ):
@@ -313,7 +323,7 @@ class TestDataTransformation:
         RED: Processed tender gets unique reference number.
         """
         # Act
-        response = n8n_client.post("/harmony-process", json=sample_raw_tender)
+        response = harmony_client.post("/process", json=sample_raw_tender)
 
         # Assert
         assert response.status_code == 200
@@ -322,10 +332,13 @@ class TestDataTransformation:
         reference = result.get("reference_number")
         bid_id = result.get("bid_id")
 
+        # Wait for async workflow to complete
+        time.sleep(WORKFLOW_WAIT_SECONDS)
+
         if bid_id:
             db_cursor.execute(
-                "SELECT reference_number FROM bids WHERE id = %s",
-                (bid_id,)
+                "SELECT reference_number FROM bids WHERE id = %s::uuid",
+                (str(bid_id),)
             )
             bid = db_cursor.fetchone()
             assert bid["reference_number"] is not None
@@ -342,7 +355,7 @@ class TestErrorHandling:
     @pytest.mark.vps
     def test_process_handles_missing_value(
         self,
-        n8n_client: httpx.Client
+        harmony_client: httpx.Client
     ):
         """
         RED: Missing value field is handled gracefully.
@@ -357,7 +370,7 @@ class TestErrorHandling:
         }
 
         # Act
-        response = n8n_client.post("/harmony-process", json=no_value_tender)
+        response = harmony_client.post("/process", json=no_value_tender)
 
         # Assert - Should handle gracefully
         assert response.status_code in [200, 400]
@@ -365,7 +378,7 @@ class TestErrorHandling:
     @pytest.mark.vps
     def test_process_handles_invalid_date(
         self,
-        n8n_client: httpx.Client
+        harmony_client: httpx.Client
     ):
         """
         RED: Invalid date format is handled gracefully.
@@ -380,7 +393,7 @@ class TestErrorHandling:
         }
 
         # Act
-        response = n8n_client.post("/harmony-process", json=invalid_date_tender)
+        response = harmony_client.post("/process", json=invalid_date_tender)
 
         # Assert - Should handle gracefully (error or skip)
         assert response.status_code in [200, 400, 422]
