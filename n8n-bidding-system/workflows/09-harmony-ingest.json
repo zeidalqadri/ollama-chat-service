@@ -1,6 +1,6 @@
 {
   "name": "09 - Harmony Ingest",
-  "active": false,
+  "active": true,
   "nodes": [
     {
       "parameters": {
@@ -27,30 +27,23 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "check-troubleshoot",
-              "leftValue": "={{ $json.needs_troubleshoot }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "// Code filter: Route items that need troubleshooting\n// With rate limiting: max 3 troubleshoot calls per minute\nconst item = $input.first().json;\n\nif (!item.needs_troubleshoot) {\n  return [];  // Skip - go to normal path\n}\n\n// Rate limit check using static data\nconst now = Date.now();\nconst rateLimitWindow = 60000; // 1 minute\nconst maxCallsPerWindow = 3;\n\n// Get or initialize rate limit state\nlet staticData = $getWorkflowStaticData('global');\nif (!staticData.troubleshootCalls) {\n  staticData.troubleshootCalls = [];\n}\n\n// Clean up old calls outside window\nstaticData.troubleshootCalls = staticData.troubleshootCalls.filter(t => now - t < rateLimitWindow);\n\n// Check if we're at the limit\nif (staticData.troubleshootCalls.length >= maxCallsPerWindow) {\n  // Rate limited - skip troubleshooting, mark for manual review\n  return [{\n    json: {\n      ...item,\n      needs_troubleshoot: false,\n      status: 'rate_limited',\n      raw_data: JSON.stringify({\n        _rate_limited: true,\n        _error: item.error,\n        _raw_html_length: (item.raw_html || '').length,\n        _needs_manual_review: true\n      })\n    }\n  }];\n}\n\n// Record this call and continue\nstaticData.troubleshootCalls.push(now);\nreturn $input.all();"
       },
-      "id": "if-needs-troubleshoot",
-      "name": "Needs Troubleshoot?",
-      "type": "n8n-nodes-base.if",
+      "id": "filter-needs-troubleshoot",
+      "name": "Filter: Needs Troubleshoot",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [680, 300]
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code filter: Route items that DON'T need troubleshooting\nconst item = $input.first().json;\n\nif (!item.needs_troubleshoot) {\n  return $input.all();  // Continue to Store\n}\nreturn [];  // Skip - goes to troubleshoot path"
+      },
+      "id": "filter-normal-path",
+      "name": "Filter: Normal Path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 200]
     },
     {
       "parameters": {
@@ -60,7 +53,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  stage: 'extract',\n  error_data: {\n    error: $json.error,\n    url: $json.source_url,\n    partial_data: {},\n    missing_fields: ['tender_id', 'title', 'organization', 'closing_date']\n  },\n  context: {\n    raw_html: $json.raw_html\n  }\n}) }}",
         "options": {
-          "timeout": 120000
+          "timeout": 90000
         }
       },
       "id": "troubleshoot-extract",
@@ -72,7 +65,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Process troubleshoot response\nconst original = $('Validate').first().json;\nconst troubleshootResult = $json;\n\n// Check if recovery was successful\nif (troubleshootResult.recovered && troubleshootResult.data) {\n  const extracted = troubleshootResult.data;\n  return [{\n    json: {\n      source: original.source,\n      job_id: original.job_id,\n      source_tender_id: extracted.tender_id || extracted.id || 'recovered-' + Date.now(),\n      source_url: original.source_url,\n      raw_data: JSON.stringify({\n        ...extracted,\n        _recovered: true,\n        _recovery_confidence: troubleshootResult.confidence,\n        _diagnosis: troubleshootResult.diagnosis\n      }),\n      scraped_at: original.scraped_at,\n      recovered: true\n    }\n  }];\n}\n\n// Recovery failed - log for manual review\nreturn [{\n  json: {\n    source: original.source,\n    job_id: original.job_id,\n    source_tender_id: 'failed-extraction-' + Date.now(),\n    source_url: original.source_url,\n    raw_data: JSON.stringify({\n      _extraction_failed: true,\n      _diagnosis: troubleshootResult.diagnosis || 'Unknown failure',\n      _raw_html_length: (original.raw_html || '').length,\n      _needs_manual_review: true\n    }),\n    scraped_at: original.scraped_at,\n    status: 'failed_extraction'\n  }\n}];"
+        "jsCode": "// Process troubleshoot response with circuit breaker\nconst original = $('Filter: Needs Troubleshoot').first().json;\nconst troubleshootResult = $json;\n\n// Circuit breaker: track failures\nlet staticData = $getWorkflowStaticData('global');\nif (!staticData.troubleshootFailures) {\n  staticData.troubleshootFailures = 0;\n  staticData.lastTroubleshootSuccess = Date.now();\n}\n\n// Check if HTTP request failed\nconst httpFailed = troubleshootResult.error || troubleshootResult.statusCode >= 400;\n\nif (httpFailed) {\n  staticData.troubleshootFailures++;\n  \n  // Return failure result\n  return [{\n    json: {\n      source: original.source,\n      job_id: original.job_id,\n      source_tender_id: 'failed-extraction-' + Date.now(),\n      source_url: original.source_url,\n      raw_data: JSON.stringify({\n        _extraction_failed: true,\n        _diagnosis: 'API call failed: ' + (troubleshootResult.error || troubleshootResult.statusCode),\n        _raw_html_length: (original.raw_html || '').length,\n        _needs_manual_review: true\n      }),\n      scraped_at: original.scraped_at,\n      status: 'failed_extraction'\n    }\n  }];\n}\n\n// Reset failure counter on success\nstaticData.troubleshootFailures = 0;\nstaticData.lastTroubleshootSuccess = Date.now();\n\n// Check if recovery was successful\nif (troubleshootResult.recovered && troubleshootResult.data) {\n  const extracted = troubleshootResult.data;\n  return [{\n    json: {\n      source: original.source,\n      job_id: original.job_id,\n      source_tender_id: extracted.tender_id || extracted.id || 'recovered-' + Date.now(),\n      source_url: original.source_url,\n      raw_data: JSON.stringify({\n        ...extracted,\n        _recovered: true,\n        _recovery_confidence: troubleshootResult.confidence,\n        _diagnosis: troubleshootResult.diagnosis\n      }),\n      scraped_at: original.scraped_at,\n      recovered: true\n    }\n  }];\n}\n\n// Recovery failed - log for manual review\nreturn [{\n  json: {\n    source: original.source,\n    job_id: original.job_id,\n    source_tender_id: 'failed-extraction-' + Date.now(),\n    source_url: original.source_url,\n    raw_data: JSON.stringify({\n      _extraction_failed: true,\n      _diagnosis: troubleshootResult.diagnosis || 'Unknown failure',\n      _raw_html_length: (original.raw_html || '').length,\n      _needs_manual_review: true\n    }),\n    scraped_at: original.scraped_at,\n    status: 'failed_extraction'\n  }\n}];"
       },
       "id": "process-troubleshoot",
       "name": "Process Troubleshoot",
@@ -96,7 +89,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const items = $input.all();\nconst recovered = items.filter(i => i.json.recovered);\nconst failed = items.filter(i => i.json.status === 'failed_extraction');\n\nreturn [{ json: {\n  success: true,\n  processed: items.length,\n  new_tenders: items.filter(i => i.json.is_new).length,\n  recovered_count: recovered.length,\n  failed_count: failed.length,\n  ids: items.map(i => ({\n    id: i.json.id,\n    tender: i.json.source_tender_id,\n    is_new: i.json.is_new,\n    recovered: i.json.recovered || false\n  }))\n} }];"
+        "jsCode": "const items = $input.all();\nconst recovered = items.filter(i => i.json.recovered);\nconst failed = items.filter(i => i.json.status === 'failed_extraction' || i.json.status === 'rate_limited');\n\nreturn [{ json: {\n  success: true,\n  processed: items.length,\n  new_tenders: items.filter(i => i.json.is_new).length,\n  recovered_count: recovered.length,\n  failed_count: failed.length,\n  ids: items.map(i => ({\n    id: i.json.id,\n    tender: i.json.source_tender_id,\n    is_new: i.json.is_new,\n    recovered: i.json.recovered || false\n  }))\n} }];"
       },
       "id": "aggregate",
       "name": "Aggregate",
@@ -106,28 +99,11 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "check-failed",
-              "leftValue": "={{ $json.failed_count > 0 }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "// Code filter: Check if there are failures to alert\nconst data = $input.first().json;\n\nif (data.failed_count > 0) {\n  return $input.all();  // Continue to alert\n}\nreturn [];  // No failures, skip alert"
       },
-      "id": "if-has-failures",
-      "name": "Has Failures?",
-      "type": "n8n-nodes-base.if",
+      "id": "filter-has-failures",
+      "name": "Filter: Has Failures",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [1780, 300]
     },
@@ -135,14 +111,14 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_INTAKE_GROUP }}",
-        "text": "={{ `⚠️ HARMONY INGEST WARNING\n\n📋 Job: ${$json.job_id || 'unknown'}\n✅ Processed: ${$json.processed}\n🔄 Recovered: ${$json.recovered_count}\n❌ Failed: ${$json.failed_count}\n\n👀 Some extractions failed and require manual review.` }}",
+        "text": "={{ `⚠️ HARMONY INGEST WARNING\n\n📋 Job: ${$('Aggregate').first().json.job_id || 'unknown'}\n✅ Processed: ${$json.processed}\n🔄 Recovered: ${$json.recovered_count}\n❌ Failed: ${$json.failed_count}\n\n👀 Some extractions failed and require manual review.` }}",
         "additionalFields": {}
       },
       "id": "telegram-alert-failures",
       "name": "Alert: Extraction Failures",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2000, 400],
+      "position": [2000, 300],
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
@@ -154,27 +130,23 @@
   ],
   "connections": {
     "Webhook": {"main": [[{"node": "Validate", "type": "main", "index": 0}]]},
-    "Validate": {"main": [[{"node": "Needs Troubleshoot?", "type": "main", "index": 0}]]},
-    "Needs Troubleshoot?": {
-      "main": [
-        [{"node": "Troubleshoot Extract", "type": "main", "index": 0}],
-        [{"node": "Store", "type": "main", "index": 0}]
-      ]
+    "Validate": {
+      "main": [[
+        {"node": "Filter: Normal Path", "type": "main", "index": 0},
+        {"node": "Filter: Needs Troubleshoot", "type": "main", "index": 0}
+      ]]
     },
+    "Filter: Normal Path": {"main": [[{"node": "Store", "type": "main", "index": 0}]]},
+    "Filter: Needs Troubleshoot": {"main": [[{"node": "Troubleshoot Extract", "type": "main", "index": 0}]]},
     "Troubleshoot Extract": {"main": [[{"node": "Process Troubleshoot", "type": "main", "index": 0}]]},
     "Process Troubleshoot": {"main": [[{"node": "Store", "type": "main", "index": 0}]]},
     "Store": {"main": [[{"node": "Aggregate", "type": "main", "index": 0}]]},
-    "Aggregate": {"main": [[{"node": "Has Failures?", "type": "main", "index": 0}]]},
-    "Has Failures?": {
-      "main": [
-        [{"node": "Alert: Extraction Failures", "type": "main", "index": 0}],
-        []
-      ]
-    }
+    "Aggregate": {"main": [[{"node": "Filter: Has Failures", "type": "main", "index": 0}]]},
+    "Filter: Has Failures": {"main": [[{"node": "Alert: Extraction Failures", "type": "main", "index": 0}]]}
   },
   "settings": {"executionOrder": "v1", "saveManualExecutions": true},
   "staticData": null,
-  "tags": [{"name": "harmony-pipeline"}, {"name": "troubleshoot-enabled"}],
+  "tags": [{"name": "harmony-pipeline"}, {"name": "code-filter-pattern"}, {"name": "rate-limited"}],
   "triggerCount": 1,
-  "versionId": "2.0.0"
+  "versionId": "3.0.0"
 }

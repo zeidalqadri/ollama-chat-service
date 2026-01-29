@@ -86,7 +86,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, name, email, telegram_username\nFROM reviewers\nWHERE telegram_chat_id = $1::bigint",
+        "query": "SELECT id, name, email, telegram_username, can_review_technical, can_review_commercial, can_approve_management\nFROM reviewers\nWHERE telegram_chat_id = $1::bigint",
         "options": {
           "queryReplacement": "={{ [$('Parse Callback Data').first().json.user_id] }}"
         }
@@ -99,12 +99,75 @@
         1120,
         200
       ],
+      "alwaysOutputData": true,
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
           "name": "Postgres Bidding DB"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize reviewer result - ensure we always have an item to process\nconst items = $input.all();\nif (items.length === 0 || !items[0].json.id) {\n  return [{ json: { id: null, not_found: true } }];\n}\nreturn items;"
+      },
+      "id": "normalize-reviewer",
+      "name": "Normalize Reviewer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1230,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter: Check if reviewer is authorized for this review type\nconst reviewer = $input.first().json;\nconst reviewType = $('Parse Callback Data').first().json.review_type;\n\n// If reviewer not found, not authorized\nif (!reviewer || !reviewer.id || reviewer.not_found) {\n  return [];\n}\n\n// Check authorization based on review type\nlet isAuthorized = false;\nswitch (reviewType) {\n  case 'TECHNICAL':\n    isAuthorized = reviewer.can_review_technical === true;\n    break;\n  case 'COMMERCIAL':\n    isAuthorized = reviewer.can_review_commercial === true;\n    break;\n  case 'MANAGEMENT':\n    isAuthorized = reviewer.can_approve_management === true;\n    break;\n  default:\n    isAuthorized = false;\n}\n\nif (isAuthorized) {\n  return $input.all();\n}\nreturn [];"
+      },
+      "id": "filter-authorized",
+      "name": "Filter: Authorized",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter: Check if reviewer is NOT authorized - route to error response\nconst reviewer = $input.first().json;\nconst reviewType = $('Parse Callback Data').first().json.review_type;\n\n// If reviewer not found, unauthorized\nif (!reviewer || !reviewer.id || reviewer.not_found) {\n  return $input.all();\n}\n\n// Check authorization based on review type\nlet isAuthorized = false;\nswitch (reviewType) {\n  case 'TECHNICAL':\n    isAuthorized = reviewer.can_review_technical === true;\n    break;\n  case 'COMMERCIAL':\n    isAuthorized = reviewer.can_review_commercial === true;\n    break;\n  case 'MANAGEMENT':\n    isAuthorized = reviewer.can_approve_management === true;\n    break;\n  default:\n    isAuthorized = false;\n}\n\nif (!isAuthorized) {\n  return $input.all();\n}\nreturn [];"
+      },
+      "id": "filter-unauthorized",
+      "name": "Filter: Unauthorized",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $('Parse Callback Data').first().json.chat_id }}",
+        "text": "={{ `❌ UNAUTHORIZED\n\nYou are not authorized to ${$('Parse Callback Data').first().json.action} ${$('Parse Callback Data').first().json.review_type.toLowerCase()} reviews.\n\nPlease contact an administrator if you believe this is an error.` }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-unauthorized",
+      "name": "Send Unauthorized Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -610,12 +673,50 @@
       "main": [
         [
           {
+            "node": "Normalize Reviewer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Reviewer": {
+      "main": [
+        [
+          {
+            "node": "Filter: Authorized",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter: Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Authorized": {
+      "main": [
+        [
+          {
             "node": "Filter: Approval Only",
             "type": "main",
             "index": 0
           },
           {
             "node": "Filter: Needs Reason",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Unauthorized": {
+      "main": [
+        [
+          {
+            "node": "Send Unauthorized Error",
             "type": "main",
             "index": 0
           }

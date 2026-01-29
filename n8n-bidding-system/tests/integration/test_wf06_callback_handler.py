@@ -817,7 +817,6 @@ class TestEdgeCases:
         assert response.status_code in [200, 400, 404]
 
     @pytest.mark.vps
-    @pytest.mark.skip(reason="Authorization validation not yet implemented in workflow - feature enhancement needed")
     def test_callback_unauthorized_reviewer_rejected(
         self,
         n8n_client: httpx.Client,
@@ -837,7 +836,10 @@ class TestEdgeCases:
         """
         # Arrange
         bid = create_test_bid(status="COMMERCIAL_REVIEW")
-        tech_reviewer = create_test_reviewer(sample_reviewer_technical)
+        # Use unique telegram_chat_id for tech reviewer to test auth properly
+        tech_reviewer_data = sample_reviewer_technical.copy()
+        tech_reviewer_data["telegram_chat_id"] = 999999998  # Different from comm_reviewer
+        tech_reviewer = create_test_reviewer(tech_reviewer_data)
         comm_reviewer = create_test_reviewer(sample_reviewer_commercial)
         cleanup_test_data["track_bid"](bid["id"])
         cleanup_test_data["track_reviewer"](tech_reviewer["id"])
@@ -846,12 +848,12 @@ class TestEdgeCases:
         # Commercial review assigned to comm_reviewer
         create_test_review(bid["id"], "COMMERCIAL", comm_reviewer["id"])
 
-        # Tech reviewer tries to approve (not assigned)
+        # Tech reviewer tries to approve (not assigned and not authorized for commercial)
         callback_payload = {
             "callback_query": {
                 "id": "test_callback_134",
                 "from": {
-                    "id": tech_reviewer["telegram_chat_id"],
+                    "id": tech_reviewer["telegram_chat_id"],  # Tech reviewer's unique ID
                     "username": tech_reviewer["telegram_username"],
                     "first_name": "Test"
                 },
