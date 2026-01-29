@@ -102,7 +102,7 @@ class TestManagementAIAssessment:
         SKIP: AI assessment via Ollama takes too long, causes test timeout.
         TODO: Mock Ollama or increase timeout for AI tests.
         """
-        pytest.skip("AI assessment timeout - Ollama call takes too long")
+        # Now using Claude Haiku for faster AI assessment
         # Arrange - Both reviews approved
         bid = create_test_bid(status="MGMT_APPROVAL")
         tech_reviewer = create_test_reviewer(sample_reviewer_technical)
@@ -141,7 +141,7 @@ class TestManagementAIAssessment:
         assert review is not None
 
     @pytest.mark.vps
-    @pytest.mark.skip(reason="AI assessment timeout - Ollama call blocks workflow completion")
+    @pytest.mark.vps  # Now using Claude Haiku for faster AI assessment
     def test_mgmt_fallback_on_ai_failure(
         self,
         n8n_client: httpx.Client,
@@ -201,7 +201,7 @@ class TestManagementSLA:
     """Tests for management approval SLA."""
 
     @pytest.mark.vps
-    @pytest.mark.skip(reason="AI assessment timeout - Ollama call blocks workflow completion")
+    @pytest.mark.vps  # Now using Claude Haiku for faster AI assessment
     def test_mgmt_24h_sla(
         self,
         n8n_client: httpx.Client,
@@ -326,7 +326,7 @@ class TestManagementAssignment:
     """Tests for management approver assignment."""
 
     @pytest.mark.vps
-    @pytest.mark.skip(reason="AI assessment timeout - Ollama call blocks workflow completion")
+    @pytest.mark.vps  # Now using Claude Haiku for faster AI assessment
     def test_mgmt_assigns_approver_with_permission(
         self,
         n8n_client: httpx.Client,

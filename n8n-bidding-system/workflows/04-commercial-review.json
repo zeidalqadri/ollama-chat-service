@@ -19,9 +19,32 @@
     {
       "parameters": {
         "operation": "executeQuery",
+        "query": "UPDATE bids SET status = 'COMMERCIAL_REVIEW', updated_at = NOW() WHERE id = $1 AND status IN ('TECHNICAL_REVIEW', 'SUBMITTED') RETURNING id, status",
+        "options": {
+          "queryReplacement": "={{ [$json.body?.bid_id || $json.bid_id] }}"
+        }
+      },
+      "id": "update-status-commercial-review",
+      "name": "Update Status to COMMERCIAL_REVIEW",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        160,
+        192
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
         "query": "SELECT \n  b.*,\n  r_tech.decision as tech_decision,\n  r_tech.decision_reason as tech_reason,\n  rv_tech.name as tech_reviewer_name\nFROM bids b\nLEFT JOIN reviews r_tech ON b.id = r_tech.bid_id AND r_tech.review_type = 'TECHNICAL'\nLEFT JOIN reviewers rv_tech ON r_tech.assigned_to = rv_tech.id\nWHERE b.id = $1",
         "options": {
-          "queryReplacement": "={{ [$json.body.bid_id] }}"
+          "queryReplacement": "={{ [$json.body?.bid_id || $json.bid_id] }}"
         }
       },
       "id": "0b5dd551-11c0-4904-a1cf-76579bf27e28",
@@ -38,6 +61,37 @@
           "name": "Postgres Bidding DB"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-tech-approved",
+              "leftValue": "={{ $json.tech_decision }}",
+              "rightValue": "APPROVED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-tech-approved",
+      "name": "Tech Review Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        384,
+        192
+      ]
     },
     {
       "parameters": {
@@ -232,6 +286,27 @@
     {
       "parameters": {
         "chatId": "={{ $env.TELEGRAM_ESCALATION_GROUP }}",
+        "text": "={{ `⚠️ COMMERCIAL REVIEW BLOCKED\n\n🔖 Bid: ${$json.reference_number}\n\n❌ Prerequisite not met:\n• Technical Review: ${$json.tech_decision || 'NOT REVIEWED'}\n\nTechnical review must be APPROVED before commercial review.` }}",
+        "additionalFields": {}
+      },
+      "id": "alert-tech-not-approved",
+      "name": "Alert: Tech Not Approved",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        496,
+        400
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_ESCALATION_GROUP }}",
         "text": "={{ `⚠️ NO COMMERCIAL REVIEWER AVAILABLE\n\n🔖 Bid: ${$('Get Bid with Tech Review').first().json.reference_number}\n\nNo active commercial reviewers found. Please assign manually.` }}",
         "additionalFields": {}
       },
@@ -257,6 +332,17 @@
       "main": [
         [
           {
+            "node": "Update Status to COMMERCIAL_REVIEW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Status to COMMERCIAL_REVIEW": {
+      "main": [
+        [
+          {
             "node": "Get Bid with Tech Review",
             "type": "main",
             "index": 0
@@ -268,7 +354,25 @@
       "main": [
         [
           {
+            "node": "Tech Review Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tech Review Approved?": {
+      "main": [
+        [
+          {
             "node": "Get Commercial Reviewer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert: Tech Not Approved",
             "type": "main",
             "index": 0
           }

@@ -89,16 +89,33 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.OLLAMA_URL || 'http://localhost:11434' }}/api/generate",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  model: $env.ANALYSIS_MODEL || 'qwen3-coder:30b',\n  prompt: `You are a bid analysis expert. Generate lessons learned from this bid outcome.\\n\\nBID SUMMARY:\\n- Reference: ${$json.reference_number}\\n- Client: ${$json.client_name}\\n- Title: ${$json.title}\\n- Estimated Value: $${$json.estimated_value?.toLocaleString() || 'N/A'}\\n- Actual Value: $${$json.actual_contract_value?.toLocaleString() || 'N/A'}\\n- Outcome: ${$json.status}\\n${$json.loss_reason ? '- Loss Reason: ' + $json.loss_reason : ''}\\n${$json.competitor_won ? '- Competitor: ' + $json.competitor_won : ''}\\n\\nAI PREDICTIONS VS REALITY:\\n- Predicted Win Probability: ${$json.win_probability_score || 'N/A'}%\\n- Predicted Risk Score: ${$json.risk_score || 'N/A'}%\\n- Completeness Score: ${$json.completeness_score || 'N/A'}%\\n\\nREVIEW FEEDBACK:\\n- Technical: ${$json.tech_feedback || 'No notes'}\\n- Commercial: ${$json.comm_feedback || 'No notes'}\\n- Management: ${$json.mgmt_feedback || 'No notes'}\\n\\nGenerate lessons learned:\\n1. KEY FACTORS that led to this outcome (3-5 factors)\\n2. WHAT WORKED WELL (for wins) or WHAT COULD IMPROVE (for losses)\\n3. PATTERNS identified that can help future bids\\n4. RECOMMENDATIONS for similar future opportunities\\n\\nRespond in JSON format:\\n{\\n  \"key_factors\": [<string array>],\\n  \"what_worked\": \"<text>\",\\n  \"what_didnt_work\": \"<text>\",\\n  \"improvement_suggestions\": \"<text>\",\\n  \"patterns_identified\": {\\n    \"client_type\": \"<pattern>\",\\n    \"value_range\": \"<pattern>\",\\n    \"timeline\": \"<pattern>\",\\n    \"competition\": \"<pattern>\"\\n  },\\n  \"categories\": [<string array for tagging>]\\n}`,\n  stream: false,\n  options: {\n    temperature: 0.4,\n    num_predict: 1500\n  }\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  model: 'claude-3-haiku-20240307',\n  max_tokens: 1500,\n  messages: [{\n    role: 'user',\n    content: `You are a bid analysis expert. Generate lessons learned from this bid outcome.\\n\\nBID SUMMARY:\\n- Reference: ${$json.reference_number}\\n- Client: ${$json.client_name}\\n- Title: ${$json.title}\\n- Estimated Value: $${$json.estimated_value?.toLocaleString() || 'N/A'}\\n- Actual Value: $${$json.actual_contract_value?.toLocaleString() || 'N/A'}\\n- Outcome: ${$json.status}\\n${$json.loss_reason ? '- Loss Reason: ' + $json.loss_reason : ''}\\n${$json.competitor_won ? '- Competitor: ' + $json.competitor_won : ''}\\n\\nAI PREDICTIONS VS REALITY:\\n- Predicted Win Probability: ${$json.win_probability_score || 'N/A'}%\\n- Predicted Risk Score: ${$json.risk_score || 'N/A'}%\\n- Completeness Score: ${$json.completeness_score || 'N/A'}%\\n\\nREVIEW FEEDBACK:\\n- Technical: ${$json.tech_feedback || 'No notes'}\\n- Commercial: ${$json.comm_feedback || 'No notes'}\\n- Management: ${$json.mgmt_feedback || 'No notes'}\\n\\nGenerate lessons learned. Respond ONLY with valid JSON (no markdown, no explanation):\\n{\\n  \"key_factors\": [<string array>],\\n  \"what_worked\": \"<text>\",\\n  \"what_didnt_work\": \"<text>\",\\n  \"improvement_suggestions\": \"<text>\",\\n  \"patterns_identified\": {\\n    \"client_type\": \"<pattern>\",\\n    \"value_range\": \"<pattern>\",\\n    \"timeline\": \"<pattern>\",\\n    \"competition\": \"<pattern>\"\\n  },\\n  \"categories\": [<string array for tagging>]\\n}`\n  }]\n}) }}",
         "options": {
-          "timeout": 120000
+          "timeout": 30000
         }
       },
-      "id": "ollama-lessons",
-      "name": "AI Generate Lessons",
+      "id": "anthropic-lessons",
+      "name": "AI Generate Lessons (Claude)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [1120, 300],
@@ -106,7 +123,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse AI lessons learned response\nconst rawResponse = $json.response || '{}';\nconst bid = $('Get Full Bid History').first().json;\n\nlet lessons;\ntry {\n  const jsonMatch = rawResponse.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    lessons = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  lessons = {\n    key_factors: ['AI analysis incomplete - manual review recommended'],\n    what_worked: bid.status === 'WON' ? 'Bid was successful' : '',\n    what_didnt_work: bid.status === 'LOST' ? bid.loss_reason || 'Unknown' : '',\n    improvement_suggestions: 'Manual analysis required',\n    patterns_identified: {},\n    categories: [bid.status.toLowerCase()]\n  };\n}\n\nreturn [{\n  json: {\n    bid_id: bid.id,\n    outcome: bid.status,\n    lessons: lessons\n  }\n}];"
+        "jsCode": "// Parse AI lessons learned response from Anthropic Claude\nconst rawResponse = $json.content?.[0]?.text || $json.response || '{}';\nconst bid = $('Get Full Bid History').first().json;\n\nlet lessons;\ntry {\n  const jsonMatch = rawResponse.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    lessons = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  lessons = {\n    key_factors: ['AI analysis incomplete - manual review recommended'],\n    what_worked: bid.status === 'WON' ? 'Bid was successful' : '',\n    what_didnt_work: bid.status === 'LOST' ? bid.loss_reason || 'Unknown' : '',\n    improvement_suggestions: 'Manual analysis required',\n    patterns_identified: {},\n    categories: [bid.status.toLowerCase()]\n  };\n}\n\nreturn [{\n  json: {\n    bid_id: bid.id,\n    outcome: bid.status,\n    lessons: lessons\n  }\n}];"
       },
       "id": "code-parse-lessons",
       "name": "Parse Lessons",
