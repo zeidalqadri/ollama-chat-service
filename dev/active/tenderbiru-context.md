@@ -1,198 +1,215 @@
 # TenderBiru n8n Bidding System Context
 
-**Last Updated**: 2026-01-28 06:00 MYT (Session 9)
+**Last Updated**: 2026-01-29 17:30 MYT (Session 18)
+**Status**: All workflows operational, 67/67 tests passing
 
 ## Current State
 
 ### Deployment Status
 - **VPS**: 45.159.230.42:5678 (SSH port 1511)
-- **n8n Version**: Running via pm2 (`alumist-n8n`)
+- **n8n Version**: 1.121.3 running via pm2 (`alumist-n8n`)
 - **Databases**:
-  - `alumist_n8n` (n8n data) - schema: `n8n`
+  - `alumist_n8n` (n8n data) - schema: `n8n` (IMPORTANT: not `public`)
   - `tenderbiru` (bid data) - schema: `public`
 - **BORAK API**: 45.159.230.42:8012 (troubleshooting endpoint)
+- **Analysis Model**: `qwen2.5-coder:7b` (testing) / `qwen3-coder:30b` (production)
 
-### Database Credentials (CRITICAL)
+### Working Workflows (All Active)
+| Workflow | ID | Webhook Path | Tests |
+|----------|------|--------------|-------|
+| 01-Bid Submission Intake | `DPJT2MQD4WBj7hue` | `/webhook/bid/submit` | 7/7 |
+| 02-AI Completeness Analysis | `CB139e0Wa5eD5CPq` | `/webhook/bid/analyze` | 7/7 |
+| 03-Technical Review | `pDIbeNqprrxiMEgy` | `/webhook/bid/technical-review` | 10/10 |
+| 04-Commercial Review | `KwxxL1JIv4VVx2q8` | `/webhook/bid/commercial-review` | 6/6 |
+| 05-Management Approval | `FBritKEXzO0e9Hzt` | `/webhook/bid/management-approval` | 6/6 |
+| 06-Telegram Callback | `w0Y4W8pXU7Sendo9` | `/webhook/telegram-callback` | 15/15 |
+| 07-Outcome Tracking | `x1YtWN6JwGbuasDh` | `/webhook/bid/outcome` | 8/8 |
+| 09-Harmony Ingest | `7fq1nNzavCYeAeYf` | `/webhook/harmony/ingest` | 8/8 |
+| 10-Harmony Process | `NUdhPAanITYV8hTW` | `/webhook/harmony/process` | N/A |
+
+---
+
+## Key Technical Patterns
+
+### Code Filter Pattern (n8n v1.121.3 Bug Workaround)
+
+**Problem**: IF/Switch nodes incorrectly route all items to first output in n8n v1.121.3.
+
+**Solution**: Use Code nodes as filters instead:
+```javascript
+// Code filter - return [] to stop, return $input.all() to continue
+const data = $input.first().json;
+if (condition) {
+  return $input.all();  // Continue to next node
+}
+return [];  // Stop this branch
+```
+
+**Affected workflows**: WF03, WF04, WF06, WF09 (all converted)
+
+### Rate Limiting Pattern (WF09)
+
+Prevents API flooding using workflow static data:
+```javascript
+const now = Date.now();
+const rateLimitWindow = 60000; // 1 minute
+const maxCallsPerWindow = 3;
+
+let staticData = $getWorkflowStaticData('global');
+if (!staticData.calls) staticData.calls = [];
+staticData.calls = staticData.calls.filter(t => now - t < rateLimitWindow);
+
+if (staticData.calls.length >= maxCallsPerWindow) {
+  return [{ json: { ...item, status: 'rate_limited' } }];
+}
+staticData.calls.push(now);
+return $input.all();
+```
+
+### Empty Query Result Handling
+
+**Problem**: Postgres returning 0 rows means downstream nodes get no input.
+
+**Solution**: Add Normalize node after query:
+```javascript
+const items = $input.all();
+if (items.length === 0 || !items[0].json.id) {
+  return [{ json: { id: null, no_reviewer: true } }];
+}
+return items;
+```
+
+### Telegram message_id Reference
+
+n8n Telegram node returns nested structure:
+```javascript
+// Correct
+$('Send Review Request').first().json.result.message_id
+
+// Wrong (undefined)
+$json.message_id
+```
+
+### Webhook Body After Intermediate Nodes
+
+After UPDATE queries, `$json` is the UPDATE result, not webhook body:
+```javascript
+// Correct
+$('Webhook: Commercial Review').first().json.body?.bid_id
+
+// Wrong (undefined after UPDATE)
+$json.body?.bid_id
+```
+
+---
+
+## Database Credentials
+
 ```bash
 # TenderBiru database
 PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -h localhost -U alumist -d tenderbiru
 
-# n8n database
+# n8n database (NOTE: workflows are in 'n8n' schema, not 'public')
 PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -h localhost -U alumist -d alumist_n8n
+# Query workflows: SELECT * FROM n8n.workflow_entity;
+# Query webhooks: SELECT * FROM n8n.webhook_entity;
 ```
 
-### Working Workflows
-| Workflow | ID | Webhook Path | Version | Status |
-|----------|------|--------------|---------|--------|
-| Bid Submission Intake | `DPJT2MQD4WBj7hue` | `/webhook/bid/submit` | 1.x | ✅ Active |
-| AI Completeness Analysis | `l2RiR02qed1XaTzX` | `/webhook/bid/analyze` | **2.0.0** | ✅ Active + Retry/Fallback |
-| Technical Review | - | `/webhook/bid/technical-review` | 1.x | ✅ Active |
-| Commercial Review | - | `/webhook/bid/commercial-review` | 1.x | ✅ Active |
-| Management Approval | - | `/webhook/bid/management-approval` | 1.x | ✅ Active |
-| Telegram Callback | - | `/webhook/telegram-callback` | 1.x | ✅ Active |
-| Harmony Ingest | `8GdOVgHbGoPaT6mM` | `/webhook/harmony/ingest` | **2.0.0** | ✅ Active + Troubleshoot |
-| Harmony Process | `NUdhPAanITYV8hTW` | `/webhook/harmony/process` | 1.x | ✅ Active |
+---
 
-## Session 9 Implementation: TDD Test Suite
+## Test Environment
 
-### TDD Infrastructure Created
-**Location**: `n8n-bidding-system/tests/`
-
-```
-tests/
-├── conftest.py              # 573 lines - fixtures, DB connection, helpers
-├── pytest.ini               # Config with workflow markers
-├── requirements-test.txt    # pytest, httpx, psycopg2, respx, factory-boy
-├── unit/                    # 82 tests - ALL PASS
-│   ├── test_callback_parser.py       # Callback data parsing logic
-│   ├── test_status_transitions.py    # Bid status state machine
-│   └── test_review_assignment.py     # Reviewer assignment logic
-├── integration/             # 78 tests - VPS required
-│   ├── test_wf01_bid_submission.py
-│   ├── test_wf02_ai_analysis.py
-│   ├── test_wf03_technical_review.py  # 2/10 PASS
-│   ├── test_wf04_commercial_review.py
-│   ├── test_wf05_management_approval.py
-│   ├── test_wf06_callback_handler.py  # Most complex - 28 tests
-│   ├── test_wf07_outcome_tracking.py
-│   ├── test_wf09_harmony_ingest.py
-│   └── test_wf10_harmony_process.py
-├── e2e/
-│   └── test_full_approval_flow.py     # End-to-end flow tests
-├── factories/
-│   ├── bid_factory.py       # Test bid generation
-│   └── reviewer_factory.py  # Test reviewer generation
-└── mocks/
-    ├── telegram_mock.py     # Mock Telegram API
-    └── ollama_mock.py       # Mock Ollama API
-```
-
-### Test Results
-| Category | Passed | Failed | Notes |
-|----------|--------|--------|-------|
-| Unit Tests | 82/82 | 0 | 100% - All logic tests pass |
-| WF03 Integration | 2/10 | 8 | Reveals workflow gaps |
-
-### Key Discoveries from TDD
-
-1. **Webhook Paths**: All bid workflows use `/webhook/bid/` prefix
-   - `/webhook/bid/technical-review`
-   - `/webhook/bid/commercial-review`
-   - `/webhook/bid/management-approval`
-
-2. **Workflows are Async**: Webhooks return `{"message": "Workflow was started"}` immediately
-   - Tests need `time.sleep(3)` to wait for workflow completion
-
-3. **UUID Casting**: PostgreSQL needs explicit `::uuid` casts in queries
-
-4. **Workflow Gaps Identified** (failing tests = TDD RED phase):
-   | Gap | Impact |
-   |-----|--------|
-   | No bid status update | Bid stays SUBMITTED after tech review assigned |
-   | No telegram_notifications logging | Can't verify notifications in tests |
-   | No audit_log entries | Missing audit trail |
-   | No escalation on missing reviewer | Silently fails |
-   | Accepts invalid bid_ids | Returns 200 even for non-existent bids |
-
-### Files Created (Session 9)
-| File | Lines | Purpose |
-|------|-------|---------|
-| `tests/conftest.py` | 573 | Fixtures, DB connection, helpers |
-| `tests/pytest.ini` | 30 | pytest configuration |
-| `tests/requirements-test.txt` | 12 | Test dependencies |
-| `tests/unit/test_callback_parser.py` | 309 | Callback parsing tests |
-| `tests/unit/test_status_transitions.py` | 359 | Status state machine tests |
-| `tests/unit/test_review_assignment.py` | 459 | Reviewer assignment tests |
-| `tests/integration/test_wf03_technical_review.py` | 433 | Technical review tests |
-| `tests/integration/test_wf04_commercial_review.py` | 328 | Commercial review tests |
-| `tests/integration/test_wf05_management_approval.py` | 349 | Management approval tests |
-| `tests/integration/test_wf06_callback_handler.py` | 878 | Callback handler tests |
-| `tests/integration/test_wf01_bid_submission.py` | 253 | Bid submission tests |
-| `tests/integration/test_wf02_ai_analysis.py` | 310 | AI analysis tests |
-| `tests/integration/test_wf07_outcome_tracking.py` | 311 | Outcome tracking tests |
-| `tests/integration/test_wf09_harmony_ingest.py` | 280 | Harmony ingest tests |
-| `tests/integration/test_wf10_harmony_process.py` | 386 | Harmony process tests |
-| `tests/e2e/test_full_approval_flow.py` | 396 | E2E flow tests |
-| `tests/factories/bid_factory.py` | 200 | Bid data factory |
-| `tests/factories/reviewer_factory.py` | 252 | Reviewer data factory |
-| `tests/mocks/telegram_mock.py` | 298 | Telegram API mock |
-| `tests/mocks/ollama_mock.py` | 353 | Ollama API mock |
-
-**Total**: ~6,700 lines, 164 test functions
-
-## VPS Test Environment
-
-### Test Environment on VPS
-Tests are deployed to `/opt/n8n-bidding-system/tests/` with venv at `.venv-vps/`
-
+### VPS Test Setup
 ```bash
-# Run tests on VPS
+# SSH to VPS
 ssh -p 1511 root@45.159.230.42
+
+# Go to test directory
 cd /opt/n8n-bidding-system/tests
-export TEST_DB_DSN='postgresql://alumist:TVw2xISldsFov7O5ksjr7SYYwazR4if@localhost:5432/tenderbiru'
 source .venv-vps/bin/activate
+export TEST_DB_DSN='postgresql://alumist:TVw2xISldsFov7O5ksjr7SYYwazR4if@localhost:5432/tenderbiru'
 
-# Run unit tests (no VPS services needed)
-pytest unit/ -v
+# IMPORTANT: Always restart n8n before running tests
+pm2 restart alumist-n8n && sleep 15
 
-# Run integration tests (requires n8n + DB)
-pytest integration/test_wf03_technical_review.py -v --tb=short
+# Run individual workflow tests (recommended)
+pytest integration/test_wf01_bid_submission.py -v --timeout=60
+pytest integration/test_wf06_callback_handler.py -v --timeout=90
+pytest integration/test_wf09_harmony_ingest.py -v --timeout=120
 ```
 
-## Key Decisions Made
+### Test HTTP Client Configuration
+```python
+# From conftest.py
+N8N_WEBHOOK_URL = f"http://{VPS_HOST}:{VPS_N8N_PORT}/webhook/bid"
+# n8n_client.post("/submit") → POST http://45.159.230.42:5678/webhook/bid/submit
+```
 
-### 1. TDD Test Structure
-- Unit tests extract logic from n8n Code nodes for isolated testing
-- Integration tests hit actual n8n webhooks and verify DB state
-- E2E tests run complete approval flows
+---
 
-### 2. Test Fixtures
-- `sample_reviewer_*` - Use random telegram_chat_id to avoid duplicates
-- `create_test_bid` / `create_test_reviewer` - Factory fixtures for DB setup
-- `cleanup_test_data` - Tracks and cleans up test records
+## Troubleshooting
 
-### 3. Async Workflow Handling
-- Add `time.sleep(WORKFLOW_WAIT_SECONDS)` after webhook calls
-- Use `::uuid` casts in SQL queries for PostgreSQL
-- `conftest.py` handles transaction rollback on test failure
+### Issue: Webhook Times Out
+**Symptoms**: `httpx.ReadTimeout: timed out`
+**Solutions**:
+```bash
+# 1. Check stuck executions
+PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -U alumist -d alumist_n8n -h localhost -c \
+  "SELECT COUNT(*) FROM n8n.execution_entity WHERE status = 'running';"
 
-## Next Session Priorities
+# 2. Clear stuck executions
+PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -U alumist -d alumist_n8n -h localhost -c \
+  "UPDATE n8n.execution_entity SET status = 'crashed' WHERE status = 'running';"
 
-### 1. Fix Remaining Integration Tests (HIGH)
-Update all test files with:
-- `time.sleep(WORKFLOW_WAIT_SECONDS)` after webhook calls
-- `::uuid` casts in SQL queries
-- Proper bid_id string conversion
+# 3. Restart n8n
+pm2 restart alumist-n8n && sleep 15
+```
 
-### 2. Fix Workflow Gaps (HIGH)
-Based on failing tests, workflows need:
-- Status update to TECHNICAL_REVIEW/COMMERCIAL_REVIEW/MGMT_APPROVAL
-- telegram_notifications table logging
-- audit_log entries for actions
-- Validation of bid_id before processing
+### Issue: Workflow Registered But Not Responding
+**Symptoms**: 404 "webhook not registered" despite showing in database
+**Solution**: Restart n8n - webhooks load at startup only
 
-### 3. Run Full Test Suite (MEDIUM)
-After fixes, run all integration tests to verify workflows
+### Issue: Tests Pass Individually But Fail in Suite
+**Cause**: Full suite may timeout
+**Solution**: Run individual workflow test files
 
-## Quick Commands
+---
+
+## Quick Reference Commands
 
 ```bash
 # SSH to VPS
 ssh -p 1511 root@45.159.230.42
 
-# Run unit tests locally
-source n8n-bidding-system/tests/.venv/bin/activate
-pytest n8n-bidding-system/tests/unit/ -v
+# Check n8n status
+pm2 status alumist-n8n
+curl -s http://localhost:5678/healthz
 
-# Run integration tests on VPS
-ssh -p 1511 root@45.159.230.42 "cd /opt/n8n-bidding-system/tests && export TEST_DB_DSN='postgresql://alumist:TVw2xISldsFov7O5ksjr7SYYwazR4if@localhost:5432/tenderbiru' && source .venv-vps/bin/activate && pytest integration/test_wf03_technical_review.py -v --tb=short"
+# Check workflow registrations
+PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -U alumist -d alumist_n8n -h localhost -c \
+  "SELECT \"webhookPath\", method, \"workflowId\" FROM n8n.webhook_entity WHERE \"webhookPath\" LIKE 'bid%';"
 
 # Test webhook directly
-curl -s -X POST http://45.159.230.42:5678/webhook/bid/technical-review -H 'Content-Type: application/json' -d '{"bid_id":"test"}'
+curl -s -m 30 'http://localhost:5678/webhook/bid/submit' -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "Test", "client_name": "Test", "submission_deadline": "2026-02-15T00:00:00Z"}'
 
-# Check recent reviews
-PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -h 45.159.230.42 -U alumist -d tenderbiru -c "SELECT * FROM reviews ORDER BY created_at DESC LIMIT 5;"
+# Check recent bids
+PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -U alumist -d tenderbiru -h localhost -c \
+  "SELECT id, title, status, reference_number FROM bids ORDER BY created_at DESC LIMIT 5;"
 
-# Check n8n pm2 status
-ssh -p 1511 root@45.159.230.42 "pm2 list"
+# View n8n logs
+pm2 logs alumist-n8n --lines 30
+
+# Sync workflow files to VPS
+scp -P 1511 n8n-bidding-system/workflows/*.json root@45.159.230.42:/opt/n8n-bidding-system/workflows/
 ```
+
+---
+
+## Related Documentation
+
+- **handoff.md**: Detailed session handoff with implementation specifics
+- **tenderbiru-tasks.md**: Task completion history
+- **n8n-bidding-system/workflows/**: Workflow JSON files
+- **n8n-bidding-system/tests/**: Integration test suite
