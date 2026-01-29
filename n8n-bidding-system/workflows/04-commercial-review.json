@@ -1,4 +1,5 @@
 {
+  "name": "04 - Commercial Review",
   "nodes": [
     {
       "parameters": {
@@ -10,10 +11,7 @@
       "name": "Webhook: Commercial Review",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [
-        48,
-        192
-      ],
+      "position": [48, 192],
       "webhookId": "bid-commercial-review-webhook"
     },
     {
@@ -28,10 +26,7 @@
       "name": "Update Status to COMMERCIAL_REVIEW",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [
-        160,
-        192
-      ],
+      "position": [160, 192],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -44,17 +39,14 @@
         "operation": "executeQuery",
         "query": "SELECT \n  b.*,\n  r_tech.decision as tech_decision,\n  r_tech.decision_reason as tech_reason,\n  rv_tech.name as tech_reviewer_name\nFROM bids b\nLEFT JOIN reviews r_tech ON b.id = r_tech.bid_id AND r_tech.review_type = 'TECHNICAL'\nLEFT JOIN reviewers rv_tech ON r_tech.assigned_to = rv_tech.id\nWHERE b.id = $1",
         "options": {
-          "queryReplacement": "={{ [$json.body?.bid_id || $json.bid_id] }}"
+          "queryReplacement": "={{ [$('Webhook: Commercial Review').first().json.body?.bid_id || $('Webhook: Commercial Review').first().json.bid_id] }}"
         }
       },
       "id": "0b5dd551-11c0-4904-a1cf-76579bf27e28",
       "name": "Get Bid with Tech Review",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [
-        272,
-        192
-      ],
+      "position": [272, 192],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -64,34 +56,23 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "check-tech-approved",
-              "leftValue": "={{ $json.tech_decision }}",
-              "rightValue": "APPROVED",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ]
-        },
-        "options": {}
+        "jsCode": "// Code filter: Tech Approved - continue if tech_decision is APPROVED\nconst bid = $input.first().json;\nif (bid && bid.tech_decision === 'APPROVED') {\n  return $input.all();\n}\nreturn [];"
       },
-      "id": "if-tech-approved",
-      "name": "Tech Review Approved?",
-      "type": "n8n-nodes-base.if",
+      "id": "code-filter-tech-approved",
+      "name": "Filter: Tech Approved",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        384,
-        192
-      ]
+      "position": [384, 192]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code filter: Tech Not Approved - continue if tech_decision is NOT APPROVED\nconst bid = $input.first().json;\nif (!bid || bid.tech_decision !== 'APPROVED') {\n  return $input.all();\n}\nreturn [];"
+      },
+      "id": "code-filter-tech-not-approved",
+      "name": "Filter: Tech Not Approved",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [384, 400]
     },
     {
       "parameters": {
@@ -103,10 +84,7 @@
       "name": "Get Commercial Reviewer",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [
-        496,
-        192
-      ],
+      "position": [496, 192],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -116,34 +94,23 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "check-reviewer",
-              "leftValue": "={{ $json.id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ]
-        },
-        "options": {}
+        "jsCode": "// Code filter: Reviewer Found - continue if reviewer exists\nconst reviewer = $input.first().json;\nif (reviewer && reviewer.id) {\n  return $input.all();\n}\nreturn [];"
       },
-      "id": "3032200d-ba1c-40d9-96ce-9f46194fe546",
-      "name": "Reviewer Found?",
-      "type": "n8n-nodes-base.if",
+      "id": "code-filter-reviewer-found",
+      "name": "Filter: Reviewer Found",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        720,
-        192
-      ]
+      "position": [720, 80]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code filter: No Reviewer - continue if no reviewer exists\nconst reviewer = $input.first().json;\nif (!reviewer || !reviewer.id) {\n  return $input.all();\n}\nreturn [];"
+      },
+      "id": "code-filter-no-reviewer",
+      "name": "Filter: No Reviewer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 304]
     },
     {
       "parameters": {
@@ -157,10 +124,7 @@
       "name": "Create Review Record",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [
-        928,
-        80
-      ],
+      "position": [928, 80],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -180,10 +144,7 @@
       "name": "Update Bid Status",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [
-        1072,
-        256
-      ],
+      "position": [1072, 256],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -225,10 +186,7 @@
       "name": "Send Review Request",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        1152,
-        80
-      ],
+      "position": [1152, 80],
       "webhookId": "81715229-8141-4f1a-956d-4330e6e6ad68",
       "credentials": {
         "telegramApi": {
@@ -242,17 +200,34 @@
         "operation": "executeQuery",
         "query": "UPDATE reviews SET\n  notification_message_id = $1,\n  notification_chat_id = $2\nWHERE id = $3",
         "options": {
-          "queryReplacement": "={{ [$json.message_id, $('Get Commercial Reviewer').first().json.telegram_chat_id, $('Create Review Record').first().json.id] }}"
+          "queryReplacement": "={{ [$('Send Review Request').first().json.result.message_id, $('Get Commercial Reviewer').first().json.telegram_chat_id, $('Create Review Record').first().json.id] }}"
         }
       },
       "id": "dca82f98-3861-4f69-b1be-ce910509bbc9",
       "name": "Store Message ID",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [
-        1376,
-        80
-      ],
+      "position": [1376, 80],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO telegram_notifications (chat_id, chat_type, message_id, message_text, bid_id, review_id, notification_type, has_inline_keyboard) VALUES ($1, 'private', $2, $3, $4::uuid, $5::uuid, 'review_assigned', TRUE)",
+        "options": {
+          "queryReplacement": "={{ [$('Get Commercial Reviewer').first().json.telegram_chat_id, $('Send Review Request').first().json.result.message_id, `Commercial review request for ${$('Get Bid with Tech Review').first().json.reference_number}`, $('Get Bid with Tech Review').first().json.id, $('Create Review Record').first().json.id] }}"
+        }
+      },
+      "id": "log-review-notification",
+      "name": "Log Review Notification",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1376, 184],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -272,10 +247,7 @@
       "name": "Log Assignment",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [
-        1376,
-        288
-      ],
+      "position": [1376, 288],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -293,14 +265,31 @@
       "name": "Alert: Tech Not Approved",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        496,
-        400
-      ],
+      "position": [608, 400],
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
           "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO telegram_notifications (chat_id, chat_type, message_id, message_text, bid_id, notification_type, has_inline_keyboard) VALUES ($1, 'group', $2, $3, $4::uuid, 'prerequisite_not_met', FALSE)",
+        "options": {
+          "queryReplacement": "={{ [$env.TELEGRAM_ESCALATION_GROUP, $json.result.message_id, `Commercial review blocked - tech not approved for ${$('Get Bid with Tech Review').first().json.reference_number}`, $('Get Bid with Tech Review').first().json.id] }}"
+        }
+      },
+      "id": "log-tech-not-approved",
+      "name": "Log Prerequisite Alert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [832, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
         }
       }
     },
@@ -314,15 +303,32 @@
       "name": "Alert: No Reviewer",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        752,
-        448
-      ],
+      "position": [944, 304],
       "webhookId": "29151fe3-451d-4c40-bfab-afac95f36e56",
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
           "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO telegram_notifications (chat_id, chat_type, message_id, message_text, bid_id, notification_type, has_inline_keyboard) VALUES ($1, 'group', $2, $3, $4::uuid, 'escalation_no_reviewer', FALSE)",
+        "options": {
+          "queryReplacement": "={{ [$env.TELEGRAM_ESCALATION_GROUP, $json.result.message_id, `No commercial reviewer for bid ${$('Get Bid with Tech Review').first().json.reference_number}`, $('Get Bid with Tech Review').first().json.id] }}"
+        }
+      },
+      "id": "log-no-reviewer",
+      "name": "Log Escalation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1168, 304],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
         }
       }
     }
@@ -331,124 +337,104 @@
     "Webhook: Commercial Review": {
       "main": [
         [
-          {
-            "node": "Update Status to COMMERCIAL_REVIEW",
-            "type": "main",
-            "index": 0
-          }
+          {"node": "Update Status to COMMERCIAL_REVIEW", "type": "main", "index": 0}
         ]
       ]
     },
     "Update Status to COMMERCIAL_REVIEW": {
       "main": [
         [
-          {
-            "node": "Get Bid with Tech Review",
-            "type": "main",
-            "index": 0
-          }
+          {"node": "Get Bid with Tech Review", "type": "main", "index": 0}
         ]
       ]
     },
     "Get Bid with Tech Review": {
       "main": [
         [
-          {
-            "node": "Tech Review Approved?",
-            "type": "main",
-            "index": 0
-          }
+          {"node": "Filter: Tech Approved", "type": "main", "index": 0},
+          {"node": "Filter: Tech Not Approved", "type": "main", "index": 0}
         ]
       ]
     },
-    "Tech Review Approved?": {
+    "Filter: Tech Approved": {
       "main": [
         [
-          {
-            "node": "Get Commercial Reviewer",
-            "type": "main",
-            "index": 0
-          }
-        ],
+          {"node": "Get Commercial Reviewer", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Filter: Tech Not Approved": {
+      "main": [
         [
-          {
-            "node": "Alert: Tech Not Approved",
-            "type": "main",
-            "index": 0
-          }
+          {"node": "Alert: Tech Not Approved", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Alert: Tech Not Approved": {
+      "main": [
+        [
+          {"node": "Log Prerequisite Alert", "type": "main", "index": 0}
         ]
       ]
     },
     "Get Commercial Reviewer": {
       "main": [
         [
-          {
-            "node": "Reviewer Found?",
-            "type": "main",
-            "index": 0
-          }
+          {"node": "Filter: Reviewer Found", "type": "main", "index": 0},
+          {"node": "Filter: No Reviewer", "type": "main", "index": 0}
         ]
       ]
     },
-    "Reviewer Found?": {
+    "Filter: Reviewer Found": {
       "main": [
         [
-          {
-            "node": "Update Bid Status",
-            "type": "main",
-            "index": 0
-          }
-        ],
+          {"node": "Update Bid Status", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Filter: No Reviewer": {
+      "main": [
         [
-          {
-            "node": "Alert: No Reviewer",
-            "type": "main",
-            "index": 0
-          }
+          {"node": "Alert: No Reviewer", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Alert: No Reviewer": {
+      "main": [
+        [
+          {"node": "Log Escalation", "type": "main", "index": 0}
         ]
       ]
     },
     "Create Review Record": {
       "main": [
         [
-          {
-            "node": "Send Review Request",
-            "type": "main",
-            "index": 0
-          }
+          {"node": "Send Review Request", "type": "main", "index": 0}
         ]
       ]
     },
     "Update Bid Status": {
       "main": [
         [
-          {
-            "node": "Create Review Record",
-            "type": "main",
-            "index": 0
-          }
+          {"node": "Create Review Record", "type": "main", "index": 0}
         ]
       ]
     },
     "Send Review Request": {
       "main": [
         [
-          {
-            "node": "Store Message ID",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Log Assignment",
-            "type": "main",
-            "index": 0
-          }
+          {"node": "Store Message ID", "type": "main", "index": 0},
+          {"node": "Log Review Notification", "type": "main", "index": 0},
+          {"node": "Log Assignment", "type": "main", "index": 0}
         ]
       ]
     }
   },
   "pinData": {},
+  "settings": {"executionOrder": "v1"},
   "meta": {
     "instanceId": "9877f8d6e23e16ecfa7b5c7bc18bde445f1a7068b5730107444777faf3e40879"
-  }
+  },
+  "tags": [{"name": "bidding-workflow"}, {"name": "code-filter-pattern"}],
+  "versionId": "2.0.0"
 }

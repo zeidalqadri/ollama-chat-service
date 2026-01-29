@@ -197,7 +197,6 @@ class TestTechnicalReviewNotifications:
         assert review["notification_chat_id"] == reviewer["telegram_chat_id"]
 
     @pytest.mark.vps
-    @pytest.mark.skip(reason="Known issue: Store Message ID node not saving notification_message_id")
     def test_technical_review_stores_message_id(
         self,
         n8n_client: httpx.Client,
@@ -288,7 +287,6 @@ class TestTechnicalReviewErrorHandling:
     """Tests for error conditions."""
 
     @pytest.mark.vps
-    @pytest.mark.skip(reason="Escalation logic not implemented in WF03 workflow")
     def test_technical_review_no_reviewer_escalates(
         self,
         n8n_client: httpx.Client,
@@ -319,6 +317,7 @@ class TestTechnicalReviewErrorHandling:
             "bid_id": bid["id"],
             "reference_number": bid["reference_number"]
         })
+        time.sleep(WORKFLOW_WAIT_SECONDS)  # Wait for async workflow to complete
 
         # Assert - Should still return 200 but with escalation
         # The workflow should handle this gracefully
@@ -335,7 +334,7 @@ class TestTechnicalReviewErrorHandling:
         # Should have either escalation or no_reviewer notification
         assert any(
             t in notification_types
-            for t in ["escalation", "no_reviewer", "review_assigned"]
+            for t in ["escalation", "no_reviewer", "escalation_no_reviewer", "review_assigned"]
         )
 
     @pytest.mark.vps

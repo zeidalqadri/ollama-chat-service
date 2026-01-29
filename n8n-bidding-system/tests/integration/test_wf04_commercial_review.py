@@ -27,7 +27,6 @@ class TestCommercialReviewPrerequisites:
     """Tests for commercial review prerequisites."""
 
     @pytest.mark.vps
-    @pytest.mark.skip(reason="Prerequisite validation not implemented in WF04 workflow - accepts any bid")
     def test_commercial_review_requires_tech_approval(
         self,
         n8n_client: httpx.Client,
@@ -196,7 +195,6 @@ class TestCommercialReviewNotificationContent:
     """Tests for notification content including tech approver info."""
 
     @pytest.mark.vps
-    @pytest.mark.skip(reason="telegram_notifications table not implemented - workflow sends directly via Telegram API")
     def test_commercial_review_shows_tech_decision(
         self,
         n8n_client: httpx.Client,
