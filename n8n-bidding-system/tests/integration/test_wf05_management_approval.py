@@ -261,7 +261,6 @@ class TestManagementNotificationContent:
     """Tests for management notification including approval chain."""
 
     @pytest.mark.vps
-    @pytest.mark.skip(reason="AI assessment timeout + telegram_notifications table not implemented")
     def test_mgmt_shows_approval_chain(
         self,
         n8n_client: httpx.Client,
