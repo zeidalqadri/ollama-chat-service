@@ -262,7 +262,7 @@
         "operation": "executeQuery",
         "query": "UPDATE reviews SET\n  notification_message_id = $1,\n  notification_chat_id = $2\nWHERE id = $3",
         "options": {
-          "queryReplacement": "={{ [$json.message_id, $('Get Management Approver').first().json.telegram_chat_id, $('Create Review Record').first().json.id] }}"
+          "queryReplacement": "={{ [$('Send Approval Request').first().json.result.message_id, $('Get Management Approver').first().json.telegram_chat_id, $('Create Review Record').first().json.id] }}"
         }
       },
       "id": "4d0295e3-5d7e-4419-9f34-dbc21960694b",
@@ -272,6 +272,29 @@
       "position": [
         320,
         100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO telegram_notifications (chat_id, chat_type, message_id, message_text, bid_id, review_id, notification_type, has_inline_keyboard) VALUES ($1, 'private', $2, $3, $4::uuid, $5::uuid, 'review_assigned', TRUE)",
+        "options": {
+          "queryReplacement": "={{ [$('Get Management Approver').first().json.telegram_chat_id, $('Send Approval Request').first().json.result.message_id, `Management approval request for ${$('Parse Assessment').first().json.bid.reference_number}`, $('Parse Assessment').first().json.bid.id, $('Create Review Record').first().json.id] }}"
+        }
+      },
+      "id": "log-review-notification",
+      "name": "Log Review Notification",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        320,
+        200
       ],
       "credentials": {
         "postgres": {
@@ -462,6 +485,11 @@
         [
           {
             "node": "Store Message ID",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Review Notification",
             "type": "main",
             "index": 0
           }
