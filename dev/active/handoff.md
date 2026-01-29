@@ -1,119 +1,112 @@
-# Session Handoff - 2026-01-29 Session 16 Complete
+# Session Handoff - 2026-01-29 Session 17 Complete
 
-**Last Updated**: 2026-01-29 13:00 MYT
+**Last Updated**: 2026-01-29 15:45 MYT
 
 ## Current Task
-- **Completed**: WF05 Management Approval fixed (5/6 tests pass)
-- **Completed**: WF07 Outcome Tracking validated (8/8 tests pass)
-- **Status**: All core workflows functional, ready for commit
-
-## Quick Resume
-```bash
-# SSH to VPS
-ssh -p 1511 root@45.159.230.42
-
-# Activate test environment
-cd /opt/n8n-bidding-system/tests && source .venv-vps/bin/activate
-export TEST_DB_DSN='postgresql://alumist:TVw2xISldsFov7O5ksjr7SYYwazR4if@localhost:5432/tenderbiru'
-
-# Restart n8n (REQUIRED between test batches)
-pm2 restart alumist-n8n && sleep 15
-
-# Run specific workflow tests
-pytest integration/test_wf05_management_approval.py -v --timeout=90
-pytest integration/test_wf06_callback_handler.py -v --timeout=90
-pytest integration/test_wf07_outcome_tracking.py -v --timeout=90
-```
-
----
+- **Completed**: WF03/WF04 feature implementation, Harmony diagnosis
+- **Status**: Committed locally (not pushed yet)
+- **Commit**: `43af47b` - feat(n8n): implement WF03/WF04 Code filter pattern and notification logging
 
 ## Progress This Session
 
-### WF05 Management Approval - FIXED
+### Completed
+1. **WF03 Technical Review - ENHANCED**
+   - Added Normalize Reviewer node to handle empty query results
+   - Replaced IF node with Code filter pattern
+   - Added telegram_notifications logging for review assignments
+   - Added escalation logging when no reviewer available
+   - Fixed message_id reference (`result.message_id` not `message_id`)
+   - Result: **10/10 tests pass** (2 previously skipped now pass)
 
-**Problem**: Same IF node bug as WF06 - the "Both Reviews Approved?" IF node was checking `$json.prerequisites_met` but that field was never set by the Code node.
+2. **WF04 Commercial Review - ENHANCED**
+   - Replaced two IF nodes with Code filter pattern
+   - Implemented prerequisite validation (requires tech approval)
+   - Added telegram_notifications logging for review/escalation
+   - Fixed webhook body reference for Get Bid query
+   - Result: **6/6 tests pass** (2 previously skipped now pass)
 
-**Solution**: Applied Code filter pattern (same as WF06):
-- Replaced "Both Reviews Approved?" IF node with parallel Code filters:
-  - "Filter: Prerequisites Met" → AI Assessment path
-  - "Filter: Prerequisites NOT Met" → Alert path
-- Replaced "Approver Found?" IF node with parallel Code filters:
-  - "Filter: Approver Found" → Create Review path
-  - "Filter: No Approver" → Alert path
+3. **WF09 Harmony Ingest - DIAGNOSED**
+   - Root cause: IF node bug + BORAK troubleshoot API timeouts
+   - Workflow correctly disabled (`active: false`)
+   - Fix deferred - core bidding workflows prioritized
 
-**Also Fixed**: Webhook path was incorrectly changed to `management-approval` but tests expect `bid/management-approval`.
+### Test Status (All Workflows)
 
-### WF07 Outcome Tracking - VALIDATED
+| Workflow | Pass | Skip | Status |
+|----------|------|------|--------|
+| WF01 Bid Submission | 7/7 | 0 | ✅ Complete |
+| WF02 AI Analysis | 7/7 | 0 | ✅ Complete |
+| WF03 Technical Review | **10/10** | 0 | ✅ **All pass** |
+| WF04 Commercial Review | **6/6** | 0 | ✅ **All pass** |
+| WF05 Management Approval | 5/6 | 1 | ✅ Fixed (prev session) |
+| WF06 Callback Handler | 14/15 | 1 | ✅ Complete |
+| WF07 Outcome Tracking | 8/8 | 0 | ✅ Validated |
+| WF09 Harmony Ingest | disabled | - | ⚠️ Flooding fix pending |
 
-All 8 tests pass:
-- Status updates (WON, LOST, NO_DECISION)
-- AI lessons learned generation
-- Win announcements
-- Contract value storage
+**Total: 57/59 pass, 2 skip, 0 fail** (when run individually)
 
----
+## Key Implementation Details
 
-## Current Test Status
-
-| Workflow | Pass | Skip | Fail | Status |
-|----------|------|------|------|--------|
-| WF01 | 7/7 | 0 | 0 | ✅ Complete |
-| WF02 | 7/7 | 0 | 0 | ✅ Complete |
-| WF03 | 8/10 | 2 | 0 | ✅ Core working |
-| WF04 | 4/6 | 2 | 0 | ✅ Core working |
-| WF05 | 5/6 | 1 | 0 | ✅ **Fixed!** |
-| WF06 | 14/15 | 1 | 0 | ✅ Complete |
-| WF07 | 8/8 | 0 | 0 | ✅ **Validated!** |
-
-**Note**: Full test suite has timeout issues when run together due to n8n service stability. Tests pass when run individually.
-
----
-
-## Key Decisions
-
-1. **Code Filters Replace IF/Switch**
-   - n8n IF/Switch nodes buggy in v1.121.3
-   - Parallel Code filters give explicit control
-   - Pattern: `return []` to stop, `return $input.all()` to continue
-
-2. **Webhook Path Convention**
-   - All workflows use `bid/<workflow-name>` path pattern
-   - Tests use base URL `/webhook/bid` + path segment
-
-3. **Test Isolation**
-   - Run workflow tests individually, not as full suite
-   - Restart n8n between test batches
-
----
-
-## Files Modified (Ready to Commit)
-
+### Telegram message_id Reference
+n8n Telegram node returns `{ ok: true, result: { message_id: 123, ... } }`. Use:
+```javascript
+$('Send Review Request').first().json.result.message_id
 ```
-n8n-bidding-system/workflows/05-management-approval.json
-  - Replaced 2 IF nodes with Code filter pattern
-  - Restored correct webhook path (bid/management-approval)
+NOT `$json.message_id` directly.
 
-n8n-bidding-system/workflows/04-commercial-review.json
-  - Minor updates (from previous session)
-
-n8n-bidding-system/workflows/06-telegram-callback-handler.json
-  - Code filter pattern (from previous session)
-
-n8n-bidding-system/workflows/07-outcome-tracking.json
-  - Minor updates (from previous session)
-
-n8n-bidding-system/tests/conftest.py
-  - Fixed create_test_bid status parameter
-
-n8n-bidding-system/tests/integration/test_wf05_management_approval.py
-  - Minor test adjustments
-
-n8n-bidding-system/tests/integration/test_wf06_callback_handler.py
-  - Added conversation_state cleanup
-  - WORKFLOW_WAIT_SECONDS = 5
+### Empty Query Result Handling
+When Postgres returns 0 rows, downstream nodes receive no input. Add a Normalize node:
+```javascript
+// Normalize reviewer result
+const items = $input.all();
+if (items.length === 0 || !items[0].json.id) {
+  return [{ json: { id: null, no_reviewer: true } }];
+}
+return items;
 ```
 
----
+### Webhook Body Reference After Intermediate Nodes
+After UPDATE queries, `$json` contains the UPDATE result, not webhook body. Use:
+```javascript
+$('Webhook: Commercial Review').first().json.body?.bid_id
+```
+
+## Next Steps (For Future Sessions)
+
+1. **Lower Priority**
+   - WF06 unauthorized reviewer auth validation
+   - WF09 Harmony Ingest (apply Code filter pattern + rate limiting)
+
+2. **Infrastructure**
+   - n8n upgrade assessment (v1.121.3 bugs documented, workaround pattern established)
+   - Consider n8n upgrade to fix IF/Switch nodes
+
+## Files Modified This Session
+
+Local (commit 43af47b):
+- `n8n-bidding-system/workflows/03-technical-review.json` - Complete rewrite with Code filter
+- `n8n-bidding-system/workflows/04-commercial-review.json` - Code filter + prerequisite validation
+- `n8n-bidding-system/tests/integration/test_wf03_technical_review.py` - Removed skips, added wait
+- `n8n-bidding-system/tests/integration/test_wf04_commercial_review.py` - Removed skips
+
+VPS deployed (same changes).
+
+## Commands to Run
+
+```bash
+# Push local changes
+git push origin master
+
+# SSH to VPS
+ssh -p 1511 root@45.159.230.42
+
+# Test individual workflows
+cd /opt/n8n-bidding-system/tests && source .venv-vps/bin/activate
+export TEST_DB_DSN='postgresql://alumist:TVw2xISldsFov7O5ksjr7SYYwazR4if@localhost:5432/tenderbiru'
+pm2 restart alumist-n8n && sleep 15
+pytest integration/test_wf03_technical_review.py -v --timeout=90  # Should be 10/10
+pytest integration/test_wf04_commercial_review.py -v --timeout=90  # Should be 6/6
+```
 
 ## VPS Info
 | Property | Value |
@@ -121,31 +114,6 @@ n8n-bidding-system/tests/integration/test_wf06_callback_handler.py
 | IP | 45.159.230.42 |
 | SSH Port | 1511 |
 | n8n Version | 1.121.3 |
-| Database | PostgreSQL (alumist_n8n for n8n, tenderbiru for app) |
+| n8n Database | PostgreSQL alumist_n8n |
+| App Database | PostgreSQL tenderbiru |
 | n8n Service | pm2 process "alumist-n8n" |
-
----
-
-## Next Steps (For Future Sessions)
-
-1. **Fix WF03/WF04 remaining skipped tests** (lower priority)
-2. **Implement authorization in WF06** (skipped test: unauthorized reviewer validation)
-3. **Consider n8n upgrade** to fix IF/Switch node bugs
-4. **Performance tuning** for n8n under load
-
----
-
-## Previous Sessions
-
-### Session 16 (Current)
-- Fixed WF05 with Code filter pattern
-- Validated WF07 (8/8 pass)
-- Ready to commit all workflow changes
-
-### Session 15
-- Fixed WF06 Telegram Callback Handler fully
-- Discovered and applied Code filter workaround for n8n IF/Switch bugs
-
-### Session 14
-- Fixed WF05 prerequisite check with Code node
-- Identified Switch node v3 bug
