@@ -4,56 +4,59 @@
   "nodes": [
     {
       "parameters": {
-        "updates": ["callback_query", "message"]
+        "path": "bid/telegram-callback",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
       },
-      "id": "telegram-trigger",
-      "name": "Telegram Trigger",
-      "type": "n8n-nodes-base.telegramTrigger",
-      "typeVersion": 1.1,
-      "position": [240, 300],
-      "credentials": {
-        "telegramApi": {
-          "id": "telegram-bidding-bot",
-          "name": "Bidding Bot"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "is-callback",
-              "leftValue": "={{ !!$json.callback_query }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
-      },
-      "id": "if-callback",
-      "name": "Is Callback Query?",
-      "type": "n8n-nodes-base.if",
+      "id": "webhook-telegram-callback",
+      "name": "Webhook: Telegram Callback",
+      "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [460, 300]
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "telegram-callback-webhook"
     },
     {
       "parameters": {
-        "jsCode": "// Parse callback_data format: action_bidId_reviewType\nconst callbackData = $json.callback_query.data;\nconst parts = callbackData.split('_');\n\nif (parts.length < 3) {\n  throw new Error(`Invalid callback_data format: ${callbackData}`);\n}\n\nconst action = parts[0]; // approve, revision, reject\nconst bidId = parts[1]; // UUID\nconst reviewType = parts[2]; // tech, comm, mgmt\n\n// Map short codes to full review types\nconst reviewTypeMap = {\n  'tech': 'TECHNICAL',\n  'comm': 'COMMERCIAL',\n  'mgmt': 'MANAGEMENT'\n};\n\nconst fullReviewType = reviewTypeMap[reviewType];\nif (!fullReviewType) {\n  throw new Error(`Invalid review type: ${reviewType}`);\n}\n\n// Map actions to decisions\nconst decisionMap = {\n  'approve': 'APPROVED',\n  'revision': 'REVISION_REQUESTED',\n  'reject': 'REJECTED'\n};\n\nconst decision = decisionMap[action];\nif (!decision) {\n  throw new Error(`Invalid action: ${action}`);\n}\n\nreturn [{\n  json: {\n    callback_id: $json.callback_query.id,\n    action: action,\n    decision: decision,\n    bid_id: bidId,\n    review_type: fullReviewType,\n    user_id: $json.callback_query.from.id,\n    username: $json.callback_query.from.username,\n    first_name: $json.callback_query.from.first_name,\n    message_id: $json.callback_query.message.message_id,\n    chat_id: $json.callback_query.message.chat.id,\n    needs_reason: action !== 'approve' // Revision and reject need reasons\n  }\n}];"
+        "jsCode": "// Filter: Only pass through if this is a callback query (not a regular message)\nconst data = $json.body || $json;\nif (data.callback_query) {\n  return $input.all();\n}\nreturn [];"
+      },
+      "id": "filter-is-callback",
+      "name": "Filter: Is Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter: Only pass through if this is a regular message (not a callback query)\nconst data = $json.body || $json;\nif (data.message && !data.callback_query) {\n  return $input.all();\n}\nreturn [];"
+      },
+      "id": "filter-is-message",
+      "name": "Filter: Is Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse callback_data format: action_bidId_reviewType or action|bidId|reviewType\n// Handle both direct data and webhook body format\nconst data = $json.body || $json;\nconst callbackQuery = data.callback_query;\nconst callbackData = callbackQuery.data;\n// Support both _ and | as delimiters\nconst delimiter = callbackData.includes('|') ? '|' : '_';\nconst parts = callbackData.split(delimiter);\n\nif (parts.length < 3) {\n  throw new Error(`Invalid callback_data format: ${callbackData}`);\n}\n\nconst action = parts[0]; // approve, revision, reject\nconst bidId = parts[1]; // UUID\nconst reviewType = parts[2]; // tech, comm, mgmt\n\n// Map short codes to full review types\nconst reviewTypeMap = {\n  'tech': 'TECHNICAL',\n  'comm': 'COMMERCIAL',\n  'mgmt': 'MANAGEMENT'\n};\n\nconst fullReviewType = reviewTypeMap[reviewType];\nif (!fullReviewType) {\n  throw new Error(`Invalid review type: ${reviewType}`);\n}\n\n// Map actions to decisions\nconst decisionMap = {\n  'approve': 'APPROVED',\n  'revision': 'REVISION_REQUESTED',\n  'reject': 'REJECTED'\n};\n\nconst decision = decisionMap[action];\nif (!decision) {\n  throw new Error(`Invalid action: ${action}`);\n}\n\nreturn [{\n  json: {\n    callback_id: callbackQuery.id,\n    action: action,\n    decision: decision,\n    bid_id: bidId,\n    review_type: fullReviewType,\n    user_id: callbackQuery.from.id,\n    username: callbackQuery.from.username,\n    first_name: callbackQuery.from.first_name,\n    message_id: callbackQuery.message.message_id,\n    chat_id: callbackQuery.message.chat.id,\n    needs_reason: action !== 'approve' // Revision and reject need reasons\n  }\n}];"
       },
       "id": "code-parse-callback",
       "name": "Parse Callback Data",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [680, 200]
+      "position": [
+        680,
+        200
+      ]
     },
     {
       "parameters": {
@@ -68,18 +71,22 @@
       "name": "Answer Callback",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [900, 200],
+      "position": [
+        900,
+        200
+      ],
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
           "name": "Bidding Bot"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, name, email, telegram_username\nFROM reviewers\nWHERE telegram_chat_id = $1",
+        "query": "SELECT id, name, email, telegram_username\nFROM reviewers\nWHERE telegram_chat_id = $1::bigint",
         "options": {
           "queryReplacement": "={{ [$('Parse Callback Data').first().json.user_id] }}"
         }
@@ -88,7 +95,10 @@
       "name": "Get Reviewer Info",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1120, 200],
+      "position": [
+        1120,
+        200
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -98,30 +108,29 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "check-needs-reason",
-              "leftValue": "={{ $('Parse Callback Data').first().json.needs_reason }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        }
+        "jsCode": "// Route based on action - for approvals, pass data through; for others, stop flow here\nconst action = $('Parse Callback Data').first().json.action;\nif (action === 'approve') {\n  // Approval - return empty to skip needs-reason branch, continue to update decision\n  return [];\n}\n// Needs reason - pass all data through\nreturn $input.all();"
       },
-      "id": "if-needs-reason",
-      "name": "Needs Reason?",
-      "type": "n8n-nodes-base.if",
+      "id": "code-filter-approval",
+      "name": "Filter: Approval Only",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1340, 200]
+      "position": [
+        1340,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Route based on action - for non-approvals (revision/reject), pass data through\nconst action = $('Parse Callback Data').first().json.action;\nif (action !== 'approve') {\n  // Needs reason - return empty to skip direct update, continue to needs-reason flow\n  return [];\n}\n// Approval - pass all data through\nreturn $input.all();"
+      },
+      "id": "code-filter-needs-reason",
+      "name": "Filter: Needs Reason",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        300
+      ]
     },
     {
       "parameters": {
@@ -135,7 +144,10 @@
       "name": "Set Conversation State",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1560, 100],
+      "position": [
+        1560,
+        100
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -158,13 +170,17 @@
       "name": "Ask for Reason",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1780, 100],
+      "position": [
+        1780,
+        100
+      ],
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
           "name": "Bidding Bot"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -178,7 +194,10 @@
       "name": "Update Review Decision",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1560, 300],
+      "position": [
+        1560,
+        300
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -198,7 +217,10 @@
       "name": "Log Decision",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1780, 300],
+      "position": [
+        1780,
+        300
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -218,7 +240,10 @@
       "name": "Log to Audit",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2000, 300],
+      "position": [
+        2000,
+        300
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -231,96 +256,63 @@
         "operation": "editMessageText",
         "chatId": "={{ $('Parse Callback Data').first().json.chat_id }}",
         "messageId": "={{ $('Parse Callback Data').first().json.message_id }}",
-        "text": "={{ `✅ REVIEW COMPLETED\n\nDecision: APPROVED\nBy: ${$('Get Reviewer Info').first().json.name}\nAt: ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}` }}",
+        "text": "={{ `\u2705 REVIEW COMPLETED\n\nDecision: APPROVED\nBy: ${$('Get Reviewer Info').first().json.name}\nAt: ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}` }}",
         "additionalFields": {}
       },
       "id": "telegram-edit-message",
       "name": "Edit Original Message",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2220, 300],
+      "position": [
+        2220,
+        300
+      ],
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
           "name": "Bidding Bot"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
-        "rules": {
-          "values": [
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Parse Callback Data').first().json.review_type }}",
-                    "rightValue": "TECHNICAL",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "renameOutput": true,
-              "outputKey": "Technical"
-            },
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Parse Callback Data').first().json.review_type }}",
-                    "rightValue": "COMMERCIAL",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "renameOutput": true,
-              "outputKey": "Commercial"
-            },
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $('Parse Callback Data').first().json.review_type }}",
-                    "rightValue": "MANAGEMENT",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ]
-              },
-              "renameOutput": true,
-              "outputKey": "Management"
-            }
-          ]
-        }
+        "jsCode": "// Filter: Only pass through if review_type is TECHNICAL\nconst reviewType = $('Parse Callback Data').first().json.review_type;\nif (reviewType === 'TECHNICAL') {\n  return $input.all();\n}\nreturn [];"
       },
-      "id": "switch-next-stage",
-      "name": "Route to Next Stage",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3,
-      "position": [2440, 300]
+      "id": "filter-route-commercial",
+      "name": "Filter: Route to Commercial",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter: Only pass through if review_type is COMMERCIAL\nconst reviewType = $('Parse Callback Data').first().json.review_type;\nif (reviewType === 'COMMERCIAL') {\n  return $input.all();\n}\nreturn [];"
+      },
+      "id": "filter-route-management",
+      "name": "Filter: Route to Management",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter: Only pass through if review_type is MANAGEMENT\nconst reviewType = $('Parse Callback Data').first().json.review_type;\nif (reviewType === 'MANAGEMENT') {\n  return $input.all();\n}\nreturn [];"
+      },
+      "id": "filter-route-complete",
+      "name": "Filter: Route to Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        400
+      ]
     },
     {
       "parameters": {
@@ -337,7 +329,10 @@
       "name": "Trigger Commercial Review",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2660, 200],
+      "position": [
+        2660,
+        200
+      ],
       "continueOnFail": true
     },
     {
@@ -355,7 +350,10 @@
       "name": "Trigger Management Approval",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2660, 300],
+      "position": [
+        2660,
+        300
+      ],
       "continueOnFail": true
     },
     {
@@ -370,7 +368,10 @@
       "name": "Mark Approved to Submit",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2660, 400],
+      "position": [
+        2660,
+        400
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -382,34 +383,41 @@
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_WINS_GROUP }}",
-        "text": "={{ `🎉 BID APPROVED FOR SUBMISSION!\n\nBid ${$('Parse Callback Data').first().json.bid_id} has been approved and is ready for client submission.` }}",
+        "text": "={{ `\ud83c\udf89 BID APPROVED FOR SUBMISSION!\n\nBid ${$('Parse Callback Data').first().json.bid_id} has been approved and is ready for client submission.` }}",
         "additionalFields": {}
       },
       "id": "telegram-celebrate",
       "name": "Announce Approval",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2880, 400],
+      "position": [
+        2880,
+        400
+      ],
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
           "name": "Bidding Bot"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT state_type, context_json\nFROM conversation_state\nWHERE chat_id = $1 AND user_id = $2\nAND expires_at > NOW()",
         "options": {
-          "queryReplacement": "={{ [$json.message.chat.id, $json.message.from.id] }}"
+          "queryReplacement": "={{ [($json.body?.message || $json.message).chat.id, ($json.body?.message || $json.message).from.id] }}"
         }
       },
       "id": "postgres-check-state",
       "name": "Check Conversation State",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [680, 400],
+      "position": [
+        680,
+        400
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -419,40 +427,29 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "has-state",
-              "leftValue": "={{ $json.state_type }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ]
-        }
+        "jsCode": "// Filter: Only pass through if state_type exists (has pending state)\nif ($json.state_type) {\n  return $input.all();\n}\nreturn [];"
       },
-      "id": "if-has-state",
-      "name": "Has Pending State?",
-      "type": "n8n-nodes-base.if",
+      "id": "filter-has-state",
+      "name": "Filter: Has Pending State",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 400]
+      "position": [
+        900,
+        400
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Process the reason message with stored context\nconst state = $('Check Conversation State').first().json;\nconst context = JSON.parse(state.context_json);\nconst reason = $('Telegram Trigger').first().json.message.text;\n\nreturn [{\n  json: {\n    state_type: state.state_type,\n    reason: reason.trim(),\n    bid_id: context.bid_id,\n    review_type: context.review_type,\n    decision: context.decision,\n    message_id: context.message_id,\n    reviewer_id: context.reviewer_id,\n    reviewer_name: context.reviewer_name,\n    chat_id: $('Telegram Trigger').first().json.message.chat.id,\n    user_id: $('Telegram Trigger').first().json.message.from.id\n  }\n}];"
+        "jsCode": "// Process the reason message with stored context\n// Handle both direct data and webhook body format\nconst webhookData = $('Webhook: Telegram Callback').first().json;\nconst data = webhookData.body || webhookData;\nconst message = data.message;\n\nconst state = $('Check Conversation State').first().json;\n// context_json might be a string or already parsed object\nconst context = typeof state.context_json === 'string' ? JSON.parse(state.context_json) : state.context_json;\nconst reason = message.text;\n\nreturn [{\n  json: {\n    state_type: state.state_type,\n    reason: reason.trim(),\n    bid_id: context.bid_id,\n    review_type: context.review_type,\n    decision: context.decision,\n    message_id: context.message_id,\n    reviewer_id: context.reviewer_id,\n    reviewer_name: context.reviewer_name,\n    chat_id: message.chat.id,\n    user_id: message.from.id\n  }\n}];"
       },
       "id": "code-process-reason",
       "name": "Process Reason",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1120, 400]
+      "position": [
+        1120,
+        400
+      ]
     },
     {
       "parameters": {
@@ -466,7 +463,10 @@
       "name": "Update Review with Reason",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1340, 400],
+      "position": [
+        1340,
+        400
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -486,7 +486,10 @@
       "name": "Clear State",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1560, 400],
+      "position": [
+        1560,
+        400
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -499,54 +502,67 @@
         "operation": "editMessageText",
         "chatId": "={{ $('Process Reason').first().json.chat_id }}",
         "messageId": "={{ $('Process Reason').first().json.message_id }}",
-        "text": "={{ `${$('Process Reason').first().json.decision === 'REVISION_REQUESTED' ? '✏️ REVISION REQUESTED' : '❌ REJECTED'}\n\nBy: ${$('Process Reason').first().json.reviewer_name}\nReason: ${$('Process Reason').first().json.reason}\nAt: ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}` }}",
+        "text": "={{ `${$('Process Reason').first().json.decision === 'REVISION_REQUESTED' ? '\u270f\ufe0f REVISION REQUESTED' : '\u274c REJECTED'}\n\nBy: ${$('Process Reason').first().json.reviewer_name}\nReason: ${$('Process Reason').first().json.reason}\nAt: ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}` }}",
         "additionalFields": {}
       },
       "id": "telegram-edit-with-reason",
       "name": "Edit with Reason",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1780, 400],
+      "position": [
+        1780,
+        400
+      ],
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
           "name": "Bidding Bot"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
         "operation": "sendMessage",
         "chatId": "={{ $('Process Reason').first().json.chat_id }}",
-        "text": "={{ `✅ Decision recorded. ${$('Process Reason').first().json.decision === 'REVISION_REQUESTED' ? 'The bid submitter will be notified of the required changes.' : 'The bid has been rejected.'}` }}",
+        "text": "={{ `\u2705 Decision recorded. ${$('Process Reason').first().json.decision === 'REVISION_REQUESTED' ? 'The bid submitter will be notified of the required changes.' : 'The bid has been rejected.'}` }}",
         "additionalFields": {}
       },
       "id": "telegram-confirm-reason",
       "name": "Confirm Decision",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2000, 400],
+      "position": [
+        2000,
+        400
+      ],
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
           "name": "Bidding Bot"
         }
-      }
+      },
+      "continueOnFail": true
     }
   ],
   "connections": {
-    "Telegram Trigger": {
+    "Webhook: Telegram Callback": {
       "main": [
         [
           {
-            "node": "Is Callback Query?",
+            "node": "Filter: Is Callback",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter: Is Message",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Is Callback Query?": {
+    "Filter: Is Callback": {
       "main": [
         [
           {
@@ -554,7 +570,11 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Filter: Is Message": {
+      "main": [
         [
           {
             "node": "Check Conversation State",
@@ -590,25 +610,34 @@
       "main": [
         [
           {
-            "node": "Needs Reason?",
+            "node": "Filter: Approval Only",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter: Needs Reason",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Needs Reason?": {
+    "Filter: Approval Only": {
+      "main": [
+        [
+          {
+            "node": "Set Conversation State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Needs Reason": {
       "main": [
         [
           {
             "node": "Update Review Decision",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Set Conversation State",
             "type": "main",
             "index": 0
           }
@@ -663,14 +692,24 @@
       "main": [
         [
           {
-            "node": "Route to Next Stage",
+            "node": "Filter: Route to Commercial",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter: Route to Management",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter: Route to Complete",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Route to Next Stage": {
+    "Filter: Route to Commercial": {
       "main": [
         [
           {
@@ -678,14 +717,22 @@
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Filter: Route to Management": {
+      "main": [
         [
           {
             "node": "Trigger Management Approval",
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Filter: Route to Complete": {
+      "main": [
         [
           {
             "node": "Mark Approved to Submit",
@@ -710,14 +757,14 @@
       "main": [
         [
           {
-            "node": "Has Pending State?",
+            "node": "Filter: Has Pending State",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Has Pending State?": {
+    "Filter: Has Pending State": {
       "main": [
         [
           {
@@ -725,8 +772,7 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
     "Process Reason": {

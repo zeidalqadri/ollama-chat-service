@@ -397,9 +397,9 @@ def create_test_bid(db_cursor, sample_bid):
                 %(title)s, %(client_name)s, %(client_contact)s, %(client_email)s,
                 %(deadline)s, %(estimated_value)s, %(currency)s,
                 %(margin_percentage)s, %(source)s, %(tags)s, %(notes)s,
-                'SUBMITTED'
+                %(status)s
             )
-            RETURNING id, reference_number
+            RETURNING id, reference_number, status
         """, {
             "title": bid_data["title"],
             "client_name": bid_data["client_name"],
@@ -411,7 +411,8 @@ def create_test_bid(db_cursor, sample_bid):
             "margin_percentage": bid_data.get("margin_percentage"),
             "source": bid_data.get("source", "TDD_TEST"),
             "tags": bid_data.get("tags", []),
-            "notes": bid_data.get("notes")
+            "notes": bid_data.get("notes"),
+            "status": bid_data.get("status", "SUBMITTED")
         })
         result = db_cursor.fetchone()
         db_cursor.connection.commit()

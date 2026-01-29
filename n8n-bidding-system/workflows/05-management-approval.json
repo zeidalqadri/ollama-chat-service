@@ -1,19 +1,19 @@
 {
-  "name": "05 - Management Approval Workflow",
-  "active": false,
   "nodes": [
     {
       "parameters": {
-        "path": "bid/management-approval",
         "httpMethod": "POST",
-        
+        "path": "bid/management-approval",
         "options": {}
       },
-      "id": "webhook-mgmt-approval",
+      "id": "257a8225-2682-45b9-b675-c6957069008d",
       "name": "Webhook: Management Approval",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 300],
+      "position": [
+        -2000,
+        304
+      ],
       "webhookId": "bid-management-approval-webhook"
     },
     {
@@ -21,14 +21,17 @@
         "operation": "executeQuery",
         "query": "SELECT \n  b.*,\n  r_tech.decision as tech_decision,\n  r_tech.decision_reason as tech_reason,\n  rv_tech.name as tech_reviewer_name,\n  r_comm.decision as comm_decision,\n  r_comm.decision_reason as comm_reason,\n  rv_comm.name as comm_reviewer_name\nFROM bids b\nLEFT JOIN reviews r_tech ON b.id = r_tech.bid_id AND r_tech.review_type = 'TECHNICAL'\nLEFT JOIN reviewers rv_tech ON r_tech.assigned_to = rv_tech.id\nLEFT JOIN reviews r_comm ON b.id = r_comm.bid_id AND r_comm.review_type = 'COMMERCIAL'\nLEFT JOIN reviewers rv_comm ON r_comm.assigned_to = rv_comm.id\nWHERE b.id = $1",
         "options": {
-          "queryReplacement": "={{ [$json.body.bid_id] }}"
+          "queryReplacement": "={{ [$json.body?.bid_id || $json.bid_id] }}"
         }
       },
-      "id": "postgres-get-bid",
+      "id": "0a11b9bb-2d61-4143-adae-1cd67df782dc",
       "name": "Get Bid with All Reviews",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [460, 300],
+      "position": [
+        -1840,
+        304
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -38,31 +41,80 @@
     },
     {
       "parameters": {
+        "jsCode": "// Filter: Only pass through if BOTH reviews are APPROVED\nconst techDecision = $json.tech_decision;\nconst commDecision = $json.comm_decision;\n\nconst techApproved = techDecision === 'APPROVED';\nconst commApproved = commDecision === 'APPROVED';\n\nif (techApproved && commApproved) {\n  return $input.all();\n}\nreturn [];"
+      },
+      "id": "prereq-check-code",
+      "name": "Filter: Prerequisites Met",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter: Only pass through if prerequisites NOT met (for alert)\nconst techDecision = $json.tech_decision;\nconst commDecision = $json.comm_decision;\n\nconst techApproved = techDecision === 'APPROVED';\nconst commApproved = commDecision === 'APPROVED';\n\nif (!techApproved || !commApproved) {\n  return $input.all();\n}\nreturn [];"
+      },
+      "id": "prereq-fail-filter",
+      "name": "Filter: Prerequisites NOT Met",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        480
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
-        "url": "={{ $env.OLLAMA_URL || 'http://localhost:11434' }}/api/generate",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  model: $env.ANALYSIS_MODEL || 'qwen3-coder:30b',\n  prompt: `You are a bid strategy advisor. Provide a final win probability assessment for executive approval.\\n\\nBID SUMMARY:\\n- Reference: ${$json.reference_number}\\n- Client: ${$json.client_name}\\n- Value: $${$json.estimated_value?.toLocaleString() || 'Not specified'}\\n- AI Completeness Score: ${$json.completeness_score || 'N/A'}%\\n- Original Win Probability: ${$json.win_probability_score || 'N/A'}%\\n- Risk Score: ${$json.risk_score || 'N/A'}%\\n\\nREVIEW STATUS:\\n- Technical Review: ${$json.tech_decision} by ${$json.tech_reviewer_name}\\n- Commercial Review: ${$json.comm_decision} by ${$json.comm_reviewer_name}\\n\\nProvide:\\n1. FINAL WIN PROBABILITY (0-100) considering all reviews\\n2. KEY SUCCESS FACTORS (3 max)\\n3. KEY RISKS (3 max)\\n4. GO/NO-GO RECOMMENDATION with brief rationale\\n\\nRespond in JSON format:\\n{\\n  \"final_win_probability\": <number>,\\n  \"success_factors\": [<strings>],\\n  \"key_risks\": [<strings>],\\n  \"recommendation\": \"GO\" or \"NO-GO\",\\n  \"rationale\": \"<brief explanation>\"\\n}`,\n  stream: false,\n  options: {\n    temperature: 0.3,\n    num_predict: 1000\n  }\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  model: 'claude-3-haiku-20240307',\n  max_tokens: 1024,\n  messages: [{\n    role: 'user',\n    content: `You are a bid strategy advisor. Provide a final win probability assessment for executive approval.\\n\\nBID SUMMARY:\\n- Reference: ${$json.reference_number}\\n- Client: ${$json.client_name}\\n- Value: $${$json.estimated_value?.toLocaleString() || 'Not specified'}\\n- AI Completeness Score: ${$json.completeness_score || 'N/A'}%\\n- Original Win Probability: ${$json.win_probability_score || 'N/A'}%\\n- Risk Score: ${$json.risk_score || 'N/A'}%\\n\\nREVIEW STATUS:\\n- Technical Review: ${$json.tech_decision} by ${$json.tech_reviewer_name}\\n- Commercial Review: ${$json.comm_decision} by ${$json.comm_reviewer_name}\\n\\nProvide:\\n1. FINAL WIN PROBABILITY (0-100) considering all reviews\\n2. KEY SUCCESS FACTORS (3 max)\\n3. KEY RISKS (3 max)\\n4. GO/NO-GO RECOMMENDATION with brief rationale\\n\\nRespond ONLY with valid JSON (no markdown, no explanation):\\n{\\n  \"final_win_probability\": <number>,\\n  \"success_factors\": [<strings>],\\n  \"key_risks\": [<strings>],\\n  \"recommendation\": \"GO\" or \"NO-GO\",\\n  \"rationale\": \"<brief explanation>\"\\n}`\n  }]\n}) }}",
         "options": {
-          "timeout": 120000
+          "timeout": 30000
         }
       },
-      "id": "ollama-final-assessment",
-      "name": "AI Final Assessment",
+      "id": "934a432a-d31c-46a0-b21a-22dbe5b0f894",
+      "name": "AI Final Assessment (Claude)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 300],
+      "position": [
+        -1360,
+        200
+      ],
       "continueOnFail": true
     },
     {
       "parameters": {
-        "jsCode": "// Parse AI final assessment\nconst rawResponse = $json.response || '{}';\nconst bid = $('Get Bid with All Reviews').first().json;\n\nlet assessment;\ntry {\n  const jsonMatch = rawResponse.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    assessment = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  assessment = {\n    final_win_probability: bid.win_probability_score || 50,\n    success_factors: ['Manual assessment recommended'],\n    key_risks: ['AI assessment incomplete'],\n    recommendation: 'REVIEW',\n    rationale: 'AI analysis could not be completed'\n  };\n}\n\nassessment.final_win_probability = Math.min(100, Math.max(0, parseInt(assessment.final_win_probability) || 50));\n\nreturn [{ json: { bid: bid, assessment: assessment } }];"
+        "jsCode": "// Parse AI final assessment from Anthropic Claude\nconst rawResponse = $json.content?.[0]?.text || $json.response || '{}';\nconst bid = $('Get Bid with All Reviews').first().json;\n\nlet assessment;\ntry {\n  const jsonMatch = rawResponse.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    assessment = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  assessment = {\n    final_win_probability: bid.win_probability_score || 50,\n    success_factors: ['Manual assessment recommended'],\n    key_risks: ['AI assessment incomplete'],\n    recommendation: 'REVIEW',\n    rationale: 'AI analysis could not be completed'\n  };\n}\n\nassessment.final_win_probability = Math.min(100, Math.max(0, parseInt(assessment.final_win_probability) || 50));\n\nreturn [{ json: { bid: bid, assessment: assessment } }];"
       },
-      "id": "code-parse-assessment",
+      "id": "2552511c-ecb1-47ca-b3aa-f111b88b5ba9",
       "name": "Parse Assessment",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [
+        -1120,
+        200
+      ]
     },
     {
       "parameters": {
@@ -70,11 +122,14 @@
         "query": "SELECT id, telegram_chat_id, telegram_username, name, email\nFROM reviewers\nWHERE can_approve_management = TRUE\nAND is_active = TRUE\nORDER BY RANDOM()\nLIMIT 1",
         "options": {}
       },
-      "id": "postgres-get-approver",
+      "id": "4fca15e1-ddcf-440c-a7f5-616f27eec458",
       "name": "Get Management Approver",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1120, 300],
+      "position": [
+        -880,
+        200
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -84,50 +139,29 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "check-approver",
-              "leftValue": "={{ $json.id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ]
-        }
+        "jsCode": "// Filter: Only pass through if approver found\nconst approver = $json;\nif (approver && approver.id) {\n  return $input.all();\n}\nreturn [];"
       },
-      "id": "if-has-approver",
-      "name": "Approver Found?",
-      "type": "n8n-nodes-base.if",
+      "id": "approver-found-filter",
+      "name": "Filter: Approver Found",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1340, 300]
+      "position": [
+        -640,
+        100
+      ]
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO reviews (\n  bid_id, review_type, assigned_to, assigned_at, due_at, sla_hours\n) VALUES (\n  $1, 'MANAGEMENT', $2, NOW(), NOW() + INTERVAL '24 hours', 24\n)\nON CONFLICT (bid_id, review_type) DO UPDATE SET\n  assigned_to = $2,\n  assigned_at = NOW(),\n  due_at = NOW() + INTERVAL '24 hours',\n  decision = 'PENDING',\n  sla_breached = FALSE\nRETURNING id, due_at",
-        "options": {
-          "queryReplacement": "={{ [$('Parse Assessment').first().json.bid.id, $('Get Management Approver').first().json.id] }}"
-        }
+        "jsCode": "// Filter: Only pass through if NO approver found (for alert)\nconst approver = $json;\nif (!approver || !approver.id) {\n  return $input.all();\n}\nreturn [];"
       },
-      "id": "postgres-create-review",
-      "name": "Create Review Record",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [1560, 200],
-      "credentials": {
-        "postgres": {
-          "id": "postgres-bidding",
-          "name": "Postgres Bidding DB"
-        }
-      }
+      "id": "no-approver-filter",
+      "name": "Filter: No Approver",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        360
+      ]
     },
     {
       "parameters": {
@@ -137,11 +171,14 @@
           "queryReplacement": "={{ [$('Get Management Approver').first().json.id, $('Parse Assessment').first().json.bid.id] }}"
         }
       },
-      "id": "postgres-update-status",
+      "id": "19bb8d3d-c026-4bcf-99a7-46dc166f2732",
       "name": "Update Bid Status",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1560, 300],
+      "position": [
+        -400,
+        100
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -151,7 +188,29 @@
     },
     {
       "parameters": {
-        "operation": "sendMessage",
+        "operation": "executeQuery",
+        "query": "INSERT INTO reviews (\n  bid_id, review_type, assigned_to, assigned_at, due_at, sla_hours\n) VALUES (\n  $1, 'MANAGEMENT', $2, NOW(), NOW() + INTERVAL '24 hours', 24\n)\nON CONFLICT (bid_id, review_type) DO UPDATE SET\n  assigned_to = $2,\n  assigned_at = NOW(),\n  due_at = NOW() + INTERVAL '24 hours',\n  decision = 'PENDING',\n  sla_breached = FALSE\nRETURNING id, due_at, sla_hours",
+        "options": {
+          "queryReplacement": "={{ [$('Parse Assessment').first().json.bid.id, $('Get Management Approver').first().json.id] }}"
+        }
+      },
+      "id": "2c6a5fdf-1c0b-4620-b34f-dc623634c353",
+      "name": "Create Review Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -160,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-bidding",
+          "name": "Postgres Bidding DB"
+        }
+      }
+    },
+    {
+      "parameters": {
         "chatId": "={{ $('Get Management Approver').first().json.telegram_chat_id }}",
         "text": "={{ `🏆 EXECUTIVE APPROVAL REQUIRED\n\n🔖 Bid: ${$('Parse Assessment').first().json.bid.reference_number}\n📝 Title: ${$('Parse Assessment').first().json.bid.title}\n🏢 Client: ${$('Parse Assessment').first().json.bid.client_name}\n💰 Value: ${$('Parse Assessment').first().json.bid.estimated_value ? '$' + Number($('Parse Assessment').first().json.bid.estimated_value).toLocaleString() : 'Not specified'}\n\n📋 REVIEW CHAIN:\n✅ Technical: Approved by ${$('Parse Assessment').first().json.bid.tech_reviewer_name || 'Unknown'}\n✅ Commercial: Approved by ${$('Parse Assessment').first().json.bid.comm_reviewer_name || 'Unknown'}\n\n🤖 AI ASSESSMENT:\n• Win Probability: ${$('Parse Assessment').first().json.assessment.final_win_probability}%\n• Recommendation: ${$('Parse Assessment').first().json.assessment.recommendation}\n\n✨ SUCCESS FACTORS:\n${$('Parse Assessment').first().json.assessment.success_factors.map(f => '• ' + f).join('\\n')}\n\n⚠️ KEY RISKS:\n${$('Parse Assessment').first().json.assessment.key_risks.map(r => '• ' + r).join('\\n')}\n\n⏰ SLA: 24 hours\n\nThis is the final approval before client submission.` }}",
         "replyMarkup": {
@@ -182,11 +241,15 @@
         },
         "additionalFields": {}
       },
-      "id": "telegram-send-approval",
+      "id": "0dda3426-8225-4a89-b82a-60e5952931d9",
       "name": "Send Approval Request",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1780, 200],
+      "position": [
+        80,
+        100
+      ],
+      "webhookId": "04fe198a-6586-402b-9333-eab55858ec6d",
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
@@ -202,11 +265,14 @@
           "queryReplacement": "={{ [$json.message_id, $('Get Management Approver').first().json.telegram_chat_id, $('Create Review Record').first().json.id] }}"
         }
       },
-      "id": "postgres-update-message",
+      "id": "4d0295e3-5d7e-4419-9f34-dbc21960694b",
       "name": "Store Message ID",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2000, 200],
+      "position": [
+        320,
+        100
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -216,16 +282,41 @@
     },
     {
       "parameters": {
-        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_ESCALATION_GROUP }}",
+        "text": "={{ `⚠️ MANAGEMENT APPROVAL BLOCKED\n\n🔖 Bid: ${$json.reference_number}\n\n❌ Prerequisites not met:\n• Technical: ${$json.tech_decision || 'NOT REVIEWED'}\n• Commercial: ${$json.comm_decision || 'NOT REVIEWED'}\n\nBoth reviews must be APPROVED before management approval.` }}",
+        "additionalFields": {}
+      },
+      "id": "e248adfb-74b6-4262-a4df-d4f4c10b5df4",
+      "name": "Alert: Prerequisites Not Met",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1360,
+        480
+      ],
+      "webhookId": "436f0dd9-69af-4f50-a583-65719f120096",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bidding-bot",
+          "name": "Bidding Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
         "chatId": "={{ $env.TELEGRAM_ESCALATION_GROUP }}",
         "text": "={{ `⚠️ NO MANAGEMENT APPROVER AVAILABLE\n\n🔖 Bid: ${$('Parse Assessment').first().json.bid.reference_number}\n\nNo active management approvers found. Please assign manually.` }}",
         "additionalFields": {}
       },
-      "id": "telegram-no-approver",
+      "id": "03b4996e-57f9-491a-99b6-afeba124cecd",
       "name": "Alert: No Approver",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1560, 480],
+      "position": [
+        -400,
+        360
+      ],
+      "webhookId": "4df667bc-8745-4d0d-a16c-af91da98a69d",
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
@@ -250,14 +341,41 @@
       "main": [
         [
           {
-            "node": "AI Final Assessment",
+            "node": "Filter: Prerequisites Met",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter: Prerequisites NOT Met",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "AI Final Assessment": {
+    "Filter: Prerequisites Met": {
+      "main": [
+        [
+          {
+            "node": "AI Final Assessment (Claude)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Prerequisites NOT Met": {
+      "main": [
+        [
+          {
+            "node": "Alert: Prerequisites Not Met",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Final Assessment (Claude)": {
       "main": [
         [
           {
@@ -283,30 +401,45 @@
       "main": [
         [
           {
-            "node": "Approver Found?",
+            "node": "Filter: Approver Found",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter: No Approver",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Approver Found?": {
+    "Filter: Approver Found": {
       "main": [
         [
-          {
-            "node": "Create Review Record",
-            "type": "main",
-            "index": 0
-          },
           {
             "node": "Update Bid Status",
             "type": "main",
             "index": 0
           }
-        ],
+        ]
+      ]
+    },
+    "Filter: No Approver": {
+      "main": [
         [
           {
             "node": "Alert: No Approver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Bid Status": {
+      "main": [
+        [
+          {
+            "node": "Create Review Record",
             "type": "main",
             "index": 0
           }
@@ -336,24 +469,8 @@
       ]
     }
   },
-  "settings": {
-    "executionOrder": "v1",
-    "saveManualExecutions": true,
-    "callerPolicy": "workflowsFromSameOwner",
-    "errorWorkflow": "error-handler-workflow"
-  },
-  "staticData": null,
-  "tags": [
-    {
-      "name": "bidding-system"
-    },
-    {
-      "name": "approval"
-    },
-    {
-      "name": "management"
-    }
-  ],
-  "triggerCount": 1,
-  "versionId": "1.0.0"
+  "pinData": {},
+  "meta": {
+    "instanceId": "9877f8d6e23e16ecfa7b5c7bc18bde445f1a7068b5730107444777faf3e40879"
+  }
 }
