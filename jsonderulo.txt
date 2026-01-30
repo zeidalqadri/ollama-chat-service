@@ -1,0 +1,151 @@
+# Hypersimplistic JSON Viewer
+
+Here's a simple and clean JSON viewer built with Python and Tkinter that allows users to load and view JSON files in a structured, readable format:
+
+import tkinter as tk
+from tkinter import filedialog, ttk
+import json
+
+class JSONViewer:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Hypersimplistic JSON Viewer")
+        self.root.geometry("800x600")
+        self.root.minsize(600, 400)
+        
+        # Create main frame
+        main_frame = tk.Frame(root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Create toolbar
+        toolbar = tk.Frame(main_frame)
+        toolbar.pack(fill=tk.X, pady=(0, 10))
+        
+        self.load_button = tk.Button(toolbar, text="Load JSON File", command=self.load_json)
+        self.load_button.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.clear_button = tk.Button(toolbar, text="Clear", command=self.clear_view)
+        self.clear_button.pack(side=tk.LEFT)
+        
+        # Create treeview for displaying JSON
+        self.tree = ttk.Treeview(main_frame)
+        self.tree.pack(fill=tk.BOTH, expand=True)
+        
+        # Add scrollbars
+        v_scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        h_scrollbar = ttk.Scrollbar(main_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
+        self.tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Configure treeview columns
+        self.tree.column("#0", width=400)
+        self.tree.heading("#0", text="JSON Structure")
+        
+        # Bind double-click to expand/collapse
+        self.tree.bind("<Double-1>", self.on_item_double_click)
+        
+        # Status bar
+        self.status = tk.Label(root, text="Ready", bd=1, relief=tk.SUNKEN, anchor=tk.W)
+        self.status.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Initialize variables
+        self.current_file = None
+        
+    def load_json(self):
+        file_path = filedialog.askopenfilename(
+            title="Select JSON file",
+            filetypes=[("JSON files", ".json"), ("All files", ".*")]
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            with open(file_path, 'r') as file:
+                data = json.load(file)
+                
+            self.current_file = file_path
+            self.display_json(data)
+            self.status.config(text=f"Loaded: {file_path}")
+            
+        except json.JSONDecodeError as e:
+            tk.messagebox.showerror("Invalid JSON", f"Error parsing JSON:\n{str(e)}")
+            self.status.config(text="Error: Invalid JSON format")
+        except Exception as e:
+            tk.messagebox.showerror("Error", f"Error loading file:\n{str(e)}")
+            self.status.config(text="Error: Could not load file")
+    
+    def display_json(self, data, parent="", path=""):
+        # Clear existing items
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        # Display the JSON structure
+        self._build_tree(data, parent, path)
+    
+    def _build_tree(self, data, parent="", path=""):
+        if isinstance(data, dict):
+            for key, value in data.items():
+                node_path = f"{path}.{key}" if path else key
+                if isinstance(value, (dict, list)):
+                    node = self.tree.insert(parent, "end", text=f"{key}:", values=[node_path])
+                    self._build_tree(value, node, node_path)
+                else:
+                    self.tree.insert(parent, "end", text=f"{key}: {value}", values=[node_path])
+        elif isinstance(data, list):
+            for i, item in enumerate(data):
+                node_path = f"{path}[{i}]"
+                if isinstance(item, (dict, list)):
+                    node = self.tree.insert(parent, "end", text=f"[{i}]:", values=[node_path])
+                    self._build_tree(item, node, node_path)
+                else:
+                    self.tree.insert(parent, "end", text=f"[{i}]: {item}", values=[node_path])
+        else:
+            self.tree.insert(parent, "end", text=f"{data}", values=[path])
+    
+    def on_item_double_click(self, event):
+        item = self.tree.selection()[0]
+        self.tree.item(item, open=not self.tree.item(item, "open"))
+    
+    def clear_view(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self.current_file = None
+        self.status.config(text="Ready")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = JSONViewer(root)
+    root.mainloop()
+
+
+## Features
+
+This JSON viewer provides:
+
+1. Simple File Loading: Load any JSON file with a single click
+2. Hierarchical Display: Visual representation of JSON structure with nested elements
+3. Expandable/Collapsible Nodes: Double-click on any node to expand or collapse it
+4. Clear Functionality: Reset the viewer to start fresh
+5. Error Handling: Displays meaningful error messages for invalid JSON or file issues
+6. Status Bar: Shows current file status and information
+7. Responsive Design: Adapts to different window sizes
+8. Scrollable Interface: Handles large JSON files with scrollbars
+
+## How to Use
+
+1. Run the script
+2. Click "Load JSON File" to select a JSON file
+3. The JSON structure will be displayed in a tree view
+4. Double-click on any node to expand or collapse it
+5. Use "Clear" to reset the viewer
+6. The status bar shows information about the current operation
+
+## Requirements
+
+- Python 3.x
+- Tkinter (usually included with Python)
+
+The viewer handles nested JSON objects and arrays, displaying them in a clear hierarchical structure. It's designed to be simple yet functional for quick JSON inspection.

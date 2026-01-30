@@ -1,0 +1,19 @@
+{
+  "name": "@gooodboy/jsonderulo",
+  "version": "1.0.0",
+  "description": "Hypersimplistic JSON viewer for the terminal",
+  "main": "index.js",
+  "bin": {
+    "jsonderulo": "./bin/cli.js"
+  },
+  "scripts": {
+    "test": "node bin/cli.js --help"
+  },
+  "keywords": ["json", "viewer", "cli", "terminal", "tree"],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
