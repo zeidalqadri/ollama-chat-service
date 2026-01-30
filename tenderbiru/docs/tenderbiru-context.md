@@ -209,7 +209,7 @@ scp -P 1511 n8n-bidding-system/workflows/*.json root@45.159.230.42:/opt/n8n-bidd
 
 ## Related Documentation
 
-- **handoff.md**: Detailed session handoff with implementation specifics
+- **handoffs/**: Detailed session handoffs with implementation specifics
 - **tenderbiru-tasks.md**: Task completion history
-- **n8n-bidding-system/workflows/**: Workflow JSON files
-- **n8n-bidding-system/tests/**: Integration test suite
+- **../workflows/**: Workflow JSON files
+- **../tests/**: Integration test suite

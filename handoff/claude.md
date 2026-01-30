@@ -1,112 +1,89 @@
-# Handoff - Memory Management System Implementation
+# Handoff - TenderBiru Consolidation
 
 ## Session Stats
-- Tool calls: ~40-50 (estimated, tracking just installed)
-- Duration: ~30 minutes
-- Context pressure: 🟡 MODERATE (~40-50%)
+- Tool calls: ~15 (fresh session)
+- Duration: ~5 minutes
+- Context pressure: 🟢 LOW
 - Date: Jan 30, 2026
 
 ## Current Task
-Implemented Clawdbot-inspired memory management system for Claude Code + claude-mem.
+Consolidated TenderBiru project files into a single folder structure.
 
 ## Progress - COMPLETED
 
-### Hooks Created (4)
-1. `~/.claude/hooks/context-pressure-tracker.sh` - PostToolUse hook that counts weighted tool calls, warns at 50/70/90%
-2. `~/.claude/hooks/context-state-reset.sh` - SessionStart hook to initialize fresh tracking
-3. `~/.claude/hooks/memory-flush-stop.sh` - Stop hook reminder to save before ending
-4. `~/.claude/hooks/session-auto-save.sh` - SessionEnd hook for cleanup and handoff marker
+### Folder Restructure
+Renamed `n8n-bidding-system/` to `tenderbiru/` and consolidated all related documentation:
 
-### Skills Created (4)
-1. `~/.claude/skills/memory-management/SKILL.md` - Master guide integrating all components
-2. `~/.claude/skills/context-monitor/SKILL.md` - Heuristics for detecting context decay
-3. `~/.claude/skills/session-save/SKILL.md` - Structured save format for memory
-4. `~/.claude/skills/hybrid-search/SKILL.md` - Multi-query strategy for better retrieval
+**Before:**
+```
+n8n-bidding-system/     # Main implementation
+dev/active/             # tenderbiru-context.md, tenderbiru-tasks.md
+dev-docs/               # handoff sessions 6-9
+```
 
-### Commands Created (2)
-1. `~/.claude/commands/session-save.md` - Save session to claude-mem
-2. `~/.claude/commands/context-status.md` - Check current pressure level
+**After:**
+```
+tenderbiru/
+├── README.md           # Updated with new structure
+├── docs/
+│   ├── tenderbiru-context.md
+│   ├── tenderbiru-tasks.md
+│   └── handoffs/       # Sessions 6-9
+├── sql/                # DB schemas
+├── tests/              # Test suite (67/67 passing)
+└── workflows/          # n8n workflow JSONs (10 files)
+```
 
-### Enhanced Existing
-- `~/.claude/commands/handoff.md` - Added context stats, "save" option for memory integration
-- `~/.claude/hooks/handoff-inject.sh` - Better output, mem-search hints
+### Files Moved
+1. `dev/active/tenderbiru-context.md` → `tenderbiru/docs/`
+2. `dev/active/tenderbiru-tasks.md` → `tenderbiru/docs/`
+3. `dev-docs/handoff-*-session{6,7,8,9}.md` → `tenderbiru/docs/handoffs/`
 
-### Utility Script
-- `~/.claude/scripts/check-context-status.sh` - Manual status checker
-
-### Settings Updated
-- `~/.claude/settings.json` - Registered all new hooks
+### Files Updated
+- `tenderbiru/README.md` - Updated Files section with new structure
+- `tenderbiru/docs/tenderbiru-context.md` - Fixed relative path references
 
 ## Key Decisions
 
-1. **Tool call weighting** - Read/Bash = 2, Edit/Write = 1, Task = 0 (subagents don't add to parent context)
-
-2. **Threshold levels** - 50% (monitor), 70% (flush recommended), 90% (critical)
-
-3. **Dual save destinations** - `/handoff` for immediate injection, `/session-save` for long-term memory, `/handoff save` for both
-
-4. **Heuristic approach** - Claude Code doesn't expose token counts, so we use tool call counting as proxy
-
-5. **Composable /handoff args** - `save` for memory, `git` for commit/push, `save git` for full preservation
+1. **Single folder consolidation** - All TenderBiru artifacts in one place for easier navigation
+2. **Preserve handoffs** - Moved sessions 6-9 (TenderBiru-related) to `tenderbiru/docs/handoffs/`
+3. **Kept dev/active/** - Still contains borak-* files (separate project)
 
 ## Next Steps
 
-1. **Test in new session** - Run `/clear`, verify hooks fire on startup
-2. **Verify warnings** - Do substantial work, confirm 50/70/90% warnings appear
-3. **Test retrieval** - After saving, use `mem-search` to find this session
+1. No immediate action needed - consolidation complete
+2. VPS deployment path may need updating if referencing old folder name
 
 ## Open Issues
 
-- Hooks just installed, no tracking data yet (need new session to initialize)
-- Hybrid search is pattern-based (would need claude-mem service changes for true FTS5 integration)
-- No "silent flush" capability (would need Claude Code PreCompaction event)
+- VPS has code at `/opt/n8n-bidding-system/` - may need sync command update
+- Earlier handoffs (sessions 2-5) remain in `dev-docs/` (not TenderBiru-specific)
 
 ## Files Modified
 
-### Created
+### Renamed/Moved
 ```
-~/.claude/hooks/context-pressure-tracker.sh
-~/.claude/hooks/context-state-reset.sh
-~/.claude/hooks/memory-flush-stop.sh
-~/.claude/hooks/session-auto-save.sh
-~/.claude/skills/memory-management/SKILL.md
-~/.claude/skills/context-monitor/SKILL.md
-~/.claude/skills/session-save/SKILL.md
-~/.claude/skills/hybrid-search/SKILL.md
-~/.claude/commands/session-save.md
-~/.claude/commands/context-status.md
-~/.claude/scripts/check-context-status.sh
+n8n-bidding-system/ → tenderbiru/
+dev/active/tenderbiru-*.md → tenderbiru/docs/
+dev-docs/handoff-*-session{6,7,8,9}.md → tenderbiru/docs/handoffs/
 ```
 
-### Modified
+### Edited
 ```
-~/.claude/settings.json (added hook registrations)
-~/.claude/commands/handoff.md (enhanced)
-~/.claude/hooks/handoff-inject.sh (enhanced)
+tenderbiru/README.md (updated file tree)
+tenderbiru/docs/tenderbiru-context.md (fixed references)
 ```
 
 ## Commands to Run
 ```bash
-# Verify hooks are registered
-grep -A2 "context-pressure" ~/.claude/settings.json
+# Verify structure
+ls tenderbiru/docs/
 
-# Check skills exist
-ls ~/.claude/skills/{memory-management,context-monitor,session-save,hybrid-search}/
-
-# After /clear, check tracking initializes
-ls ~/.claude/hooks/state/
+# Check VPS sync (if needed, update path)
+# scp -P 1511 tenderbiru/workflows/*.json root@45.159.230.42:/opt/n8n-bidding-system/workflows/
 ```
 
-## Source Analysis
-Based on analysis of Clawdbot's memory system from `clawdmem.txt`:
-- Two-layer memory (daily logs + long-term MEMORY.md)
-- Hybrid search (70% vector + 30% BM25)
-- Pre-compaction memory flush
-- Session lifecycle hooks
-
-## Memory Save Status
-
-Session observation saved to:
-- `session-memory/2026-01-30-memory-management-system.md` - Structured summary for long-term retrieval
-
-This Write operation was captured by claude-mem hooks and indexed for future search.
+## TenderBiru System Status
+- **Status**: All 9 workflows operational
+- **Tests**: 67/67 passing
+- **VPS**: 45.159.230.42:5678
