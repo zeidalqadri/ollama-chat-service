@@ -502,11 +502,27 @@ ssh -p 1511 root@45.159.230.42 "cd /opt/n8n-bidding-system/workflows && n8n impo
 ## Files
 
 ```
-n8n-bidding-system/
+tenderbiru/
 ├── README.md                          # This file
+├── docs/
+│   ├── tenderbiru-context.md          # System context and patterns
+│   ├── tenderbiru-tasks.md            # Task completion history
+│   └── handoffs/                      # Session handoff documents
+│       ├── handoff-2026-01-27-session6.md
+│       ├── handoff-2026-01-27-session7.md
+│       ├── handoff-2026-01-28-session8.md
+│       └── handoff-2026-01-28-session9.md
 ├── sql/
 │   ├── 001_schema.sql                 # PostgreSQL schema
 │   └── 002_harmony_pipeline.sql       # Harmony Pipeline extension
+├── tests/                             # Integration test suite
+│   ├── conftest.py
+│   ├── pytest.ini
+│   ├── unit/
+│   ├── integration/
+│   ├── e2e/
+│   ├── factories/
+│   └── mocks/
 └── workflows/
     ├── 01-bid-submission-intake.json
     ├── 02-ai-completeness-analysis.json
