@@ -1,6 +1,6 @@
 {
   "name": "10 - Harmony Process",
-  "active": false,
+  "active": true,
   "nodes": [
     {
       "parameters": {
@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body;\nconst raw = typeof body.raw_data === 'string' ? JSON.parse(body.raw_data) : body.raw_data;\n\n// Parse date from DD/MM/YYYY to ISO\nfunction parseDate(dateStr) {\n  if (!dateStr) return new Date(Date.now() + 30*24*60*60*1000).toISOString();\n  const parts = dateStr.split('/');\n  if (parts.length === 3) {\n    return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).toISOString();\n  }\n  const parsed = new Date(dateStr);\n  return isNaN(parsed.getTime()) ? new Date(Date.now() + 30*24*60*60*1000).toISOString() : parsed.toISOString();\n}\n\n// Calculate priority\nconst value = parseFloat(raw.estimated_value) || 0;\nconst deadline = new Date(parseDate(raw.closing_date || raw.deadline));\nconst daysUntil = Math.ceil((deadline - new Date()) / (1000*60*60*24));\n\nlet score = 0;\nif (value >= 1000000) score += 40;\nelse if (value >= 500000) score += 30;\nelse if (value >= 100000) score += 20;\nelse score += 10;\n\nif (daysUntil <= 3) score += 40;\nelse if (daysUntil <= 7) score += 30;\nelse if (daysUntil <= 14) score += 20;\nelse score += 10;\n\nconst priority = score >= 70 ? 'CRITICAL' : score >= 50 ? 'HIGH' : score >= 30 ? 'MEDIUM' : 'LOW';\n\nreturn [{\n  json: {\n    raw_tender_id: body.raw_tender_id,\n    source: body.source,\n    source_tender_id: body.source_tender_id,\n    title: raw.title || 'Untitled',\n    client_name: raw.organization || raw.agency || raw.client_name || 'Unknown',\n    submission_deadline: parseDate(raw.closing_date || raw.deadline),\n    estimated_value: value || null,\n    currency: raw.currency || 'MYR',\n    priority: priority,\n    priority_score: score,\n    days_until_deadline: daysUntil,\n    source_url: raw.source_url || raw.url || null,\n    document_urls: raw.document_urls || [],\n    notes: `Imported from ${body.source} via Harmony Pipeline`\n  }\n}];"
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst raw = typeof body.raw_data === 'string' ? JSON.parse(body.raw_data) : (body.raw_data || {});\n\n// Parse date from various formats to ISO\nfunction parseDate(dateStr) {\n  if (!dateStr) return null;\n  const str = String(dateStr);\n  // Try DD/MM/YYYY\n  const parts = str.split('/');\n  if (parts.length === 3) {\n    const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);\n    return isNaN(d.getTime()) ? null : d.toISOString();\n  }\n  // Try ISO or other formats\n  const parsed = new Date(str);\n  return isNaN(parsed.getTime()) ? null : parsed.toISOString();\n}\n\n// Calculate priority score\nconst value = parseFloat(raw.estimated_value) || 0;\nconst deadlineStr = parseDate(raw.closing_date || raw.deadline || raw.submission_deadline);\nconst deadline = deadlineStr ? new Date(deadlineStr) : null;\nconst daysUntil = deadline ? Math.ceil((deadline - new Date()) / (1000*60*60*24)) : 999;\n\nlet score = 0;\nif (value >= 1000000) score += 40;\nelse if (value >= 500000) score += 30;\nelse if (value >= 100000) score += 20;\nelse score += 10;\n\nif (daysUntil <= 3) score += 40;\nelse if (daysUntil <= 7) score += 30;\nelse if (daysUntil <= 14) score += 20;\nelse score += 10;\n\nconst priority = score >= 70 ? 'CRITICAL' : score >= 50 ? 'HIGH' : score >= 30 ? 'MEDIUM' : 'LOW';\n\nreturn [{\n  json: {\n    raw_tender_id: body.raw_tender_id,\n    source: body.source,\n    source_tender_id: body.source_tender_id,\n    title: (raw.title || '').trim(),\n    client_name: (raw.organization || raw.agency || raw.client_name || '').trim(),\n    submission_deadline: deadlineStr,\n    estimated_value: value || null,\n    currency: raw.currency || 'MYR',\n    priority: priority,\n    priority_score: score,\n    days_until_deadline: daysUntil,\n    source_url: raw.source_url || raw.url || null,\n    document_urls: raw.document_urls || [],\n    notes: `Imported from ${body.source} via Harmony Pipeline`\n  }\n}];"
       },
       "id": "normalize",
       "name": "Normalize",
@@ -27,41 +27,123 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.N8N_WEBHOOK_BASE_URL }}/webhook/bid/submit",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": {"timeout": 30000}
+        "jsCode": "// Validate normalized data before creating bid\nconst data = $json;\nconst errors = [];\n\n// Required field: title\nif (!data.title || data.title.trim() === '') {\n  errors.push('missing title');\n}\n\n// Required field: client_name\nif (!data.client_name || data.client_name.trim() === '') {\n  errors.push('missing client_name');\n}\n\n// Required field: submission_deadline must be valid date\nif (!data.submission_deadline) {\n  errors.push('missing submission_deadline');\n} else {\n  const deadline = new Date(data.submission_deadline);\n  if (isNaN(deadline.getTime())) {\n    errors.push('invalid submission_deadline format');\n  } else if (deadline < new Date()) {\n    errors.push('submission_deadline is in the past');\n  }\n}\n\n// Optional: estimated_value must be non-negative if provided\nif (data.estimated_value !== null && data.estimated_value < 0) {\n  errors.push('negative estimated_value');\n}\n\n// Return validation result\nif (errors.length > 0) {\n  return [{ json: { valid: false, error: errors.join(', '), ...data } }];\n}\nreturn [{ json: { valid: true, ...data } }];"
       },
-      "id": "submit",
-      "name": "Submit to TenderBiru",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "id": "validate",
+      "name": "Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [680, 300]
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "UPDATE raw_tenders SET status = 'processed', processed_at = NOW(), bid_id = '{{ $json.bid_id }}' WHERE id = '{{ $('Normalize').first().json.raw_tender_id }}'",
-        "options": {}
+        "conditions": {
+          "boolean": [{"value1": "={{ $json.valid }}", "value2": true}]
+        }
       },
-      "id": "update",
-      "name": "Mark Processed",
+      "id": "if-valid",
+      "name": "If Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO bids (\n  title, client_name, submission_deadline, estimated_value,\n  currency, priority, source, source_tender_id, notes,\n  document_urls, status\n) VALUES (\n  $1, $2, $3, $4, $5, $6, 'harmony', $7, $8, $9, 'DRAFT'\n)\nRETURNING id, reference_number, status, created_at",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.title,\n  $json.client_name,\n  $json.submission_deadline,\n  $json.estimated_value,\n  $json.currency,\n  $json.priority,\n  $json.source_tender_id,\n  $json.notes,\n  $json.document_urls\n] }}"
+        }
+      },
+      "id": "insert-bid",
+      "name": "Insert Bid",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [900, 300],
+      "position": [1120, 200],
       "credentials": {"postgres": {"id": "postgres-bidding", "name": "Postgres Bidding DB"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE raw_tenders\nSET status = 'processed',\n    bid_id = $1,\n    processed_at = NOW(),\n    raw_data = raw_data || $2::jsonb\nWHERE id = $3::uuid",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Insert Bid').first().json.id,\n  JSON.stringify({\n    _processed: true,\n    _bid_reference: $('Insert Bid').first().json.reference_number,\n    _priority: $('Validate').first().json.priority,\n    _priority_score: $('Validate').first().json.priority_score\n  }),\n  $('Validate').first().json.raw_tender_id\n] }}"
+        }
+      },
+      "id": "link-bid",
+      "name": "Link Raw Tender",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 200],
+      "credentials": {"postgres": {"id": "postgres-bidding", "name": "Postgres Bidding DB"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE raw_tenders\nSET status = 'invalid',\n    error_message = $1,\n    processed_at = NOW(),\n    raw_data = raw_data || $2::jsonb\nWHERE id = $3::uuid",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.error,\n  JSON.stringify({\n    _validation_failed: true,\n    _error: $json.error,\n    _attempted_at: new Date().toISOString()\n  }),\n  $json.raw_tender_id\n] }}"
+        }
+      },
+      "id": "mark-invalid",
+      "name": "Mark Invalid",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1120, 400],
+      "credentials": {"postgres": {"id": "postgres-bidding", "name": "Postgres Bidding DB"}}
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "success", "name": "success", "value": true, "type": "boolean"},
+            {"id": "bid_id", "name": "bid_id", "value": "={{ $('Insert Bid').first().json.id }}", "type": "string"},
+            {"id": "reference", "name": "reference_number", "value": "={{ $('Insert Bid').first().json.reference_number }}", "type": "string"},
+            {"id": "status", "name": "status", "value": "processed", "type": "string"}
+          ]
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "success", "name": "success", "value": false, "type": "boolean"},
+            {"id": "error", "name": "error", "value": "={{ $json.error }}", "type": "string"},
+            {"id": "status", "name": "status", "value": "invalid", "type": "string"},
+            {"id": "raw_tender_id", "name": "raw_tender_id", "value": "={{ $('Validate').first().json.raw_tender_id }}", "type": "string"}
+          ]
+        }
+      },
+      "id": "invalid-response",
+      "name": "Invalid Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1340, 400]
     }
   ],
   "connections": {
     "Webhook": {"main": [[{"node": "Normalize", "type": "main", "index": 0}]]},
-    "Normalize": {"main": [[{"node": "Submit to TenderBiru", "type": "main", "index": 0}]]},
-    "Submit to TenderBiru": {"main": [[{"node": "Mark Processed", "type": "main", "index": 0}]]}
+    "Normalize": {"main": [[{"node": "Validate", "type": "main", "index": 0}]]},
+    "Validate": {"main": [[{"node": "If Valid", "type": "main", "index": 0}]]},
+    "If Valid": {
+      "main": [
+        [{"node": "Insert Bid", "type": "main", "index": 0}],
+        [{"node": "Mark Invalid", "type": "main", "index": 0}]
+      ]
+    },
+    "Insert Bid": {"main": [[{"node": "Link Raw Tender", "type": "main", "index": 0}]]},
+    "Link Raw Tender": {"main": [[{"node": "Success Response", "type": "main", "index": 0}]]},
+    "Mark Invalid": {"main": [[{"node": "Invalid Response", "type": "main", "index": 0}]]}
   },
   "settings": {"executionOrder": "v1", "saveManualExecutions": true},
   "staticData": null,
   "tags": [{"name": "harmony-pipeline"}],
   "triggerCount": 1,
-  "versionId": "1.1.0"
+  "versionId": "3.0.0"
 }

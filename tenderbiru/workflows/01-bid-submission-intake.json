@@ -18,13 +18,25 @@
     },
     {
       "parameters": {
-        "jsCode": "// Validate incoming bid submission\nconst body = $input.first().json.body;\n\n// Required fields validation\nconst requiredFields = ['title', 'client_name', 'submission_deadline'];\nconst missingFields = [];\n\nfor (const field of requiredFields) {\n  if (!body[field] || body[field].toString().trim() === '') {\n    missingFields.push(field);\n  }\n}\n\nif (missingFields.length > 0) {\n  throw new Error(`Missing required fields: ${missingFields.join(', ')}`);\n}\n\n// Validate deadline is in the future\nconst deadline = new Date(body.submission_deadline);\nif (isNaN(deadline.getTime())) {\n  throw new Error('Invalid submission_deadline format. Use ISO 8601 format.');\n}\nif (deadline < new Date()) {\n  throw new Error('submission_deadline must be in the future');\n}\n\n// Validate estimated_value if provided\nif (body.estimated_value !== undefined) {\n  const value = parseFloat(body.estimated_value);\n  if (isNaN(value) || value < 0) {\n    throw new Error('estimated_value must be a positive number');\n  }\n}\n\n// Build validated bid object\nconst validatedBid = {\n  title: body.title.trim(),\n  client_name: body.client_name.trim(),\n  client_contact: body.client_contact?.trim() || null,\n  client_email: body.client_email?.trim() || null,\n  estimated_value: body.estimated_value ? parseFloat(body.estimated_value) : null,\n  currency: body.currency?.toUpperCase() || 'USD',\n  margin_percentage: body.margin_percentage ? parseFloat(body.margin_percentage) : null,\n  submission_deadline: deadline.toISOString(),\n  decision_expected_date: body.decision_expected_date ? new Date(body.decision_expected_date).toISOString() : null,\n  project_start_date: body.project_start_date ? new Date(body.project_start_date).toISOString() : null,\n  project_duration_days: body.project_duration_days ? parseInt(body.project_duration_days) : null,\n  priority: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(body.priority?.toUpperCase()) ? body.priority.toUpperCase() : 'MEDIUM',\n  document_urls: Array.isArray(body.document_urls) ? body.document_urls : (body.document_urls ? [body.document_urls] : []),\n  source: body.source || 'webhook',\n  tags: Array.isArray(body.tags) ? body.tags : [],\n  notes: body.notes?.trim() || null,\n  submitted_by: body.submitted_by || null\n};\n\nreturn [{ json: { validated: true, bid: validatedBid } }];"
+        "jsCode": "// Validate incoming bid submission - returns error object instead of throwing\nconst body = $input.first().json.body;\nconst errors = [];\n\n// Required fields validation\nconst requiredFields = ['title', 'client_name', 'submission_deadline'];\nfor (const field of requiredFields) {\n  if (!body[field] || body[field].toString().trim() === '') {\n    errors.push(`Missing required field: ${field}`);\n  }\n}\n\n// Validate deadline format and value\nlet deadline = null;\nif (body.submission_deadline) {\n  deadline = new Date(body.submission_deadline);\n  if (isNaN(deadline.getTime())) {\n    errors.push('Invalid submission_deadline format');\n  } else if (deadline < new Date()) {\n    errors.push('submission_deadline must be in the future');\n  }\n}\n\n// Validate estimated_value if provided\nif (body.estimated_value !== undefined) {\n  const value = parseFloat(body.estimated_value);\n  if (isNaN(value) || value < 0) {\n    errors.push('estimated_value must be a positive number');\n  }\n}\n\n// If validation failed, return error object (don't throw)\nif (errors.length > 0) {\n  return [{ json: { validated: false, error: { message: errors.join('; ') } } }];\n}\n\n// Build validated bid object\nconst validatedBid = {\n  title: body.title.trim(),\n  client_name: body.client_name.trim(),\n  client_contact: body.client_contact?.trim() || null,\n  client_email: body.client_email?.trim() || null,\n  estimated_value: body.estimated_value ? parseFloat(body.estimated_value) : null,\n  currency: body.currency?.toUpperCase() || 'USD',\n  margin_percentage: body.margin_percentage ? parseFloat(body.margin_percentage) : null,\n  submission_deadline: deadline.toISOString(),\n  decision_expected_date: body.decision_expected_date ? new Date(body.decision_expected_date).toISOString() : null,\n  project_start_date: body.project_start_date ? new Date(body.project_start_date).toISOString() : null,\n  project_duration_days: body.project_duration_days ? parseInt(body.project_duration_days) : null,\n  priority: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(body.priority?.toUpperCase()) ? body.priority.toUpperCase() : 'MEDIUM',\n  document_urls: Array.isArray(body.document_urls) ? body.document_urls : (body.document_urls ? [body.document_urls] : []),\n  source: body.source || 'webhook',\n  tags: Array.isArray(body.tags) ? body.tags : [],\n  notes: body.notes?.trim() || null,\n  submitted_by: body.submitted_by || null\n};\n\nreturn [{ json: { validated: true, bid: validatedBid } }];"
       },
       "id": "code-validate",
       "name": "Validate Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{"value1": "={{ $json.validated }}", "value2": true}]
+        }
+      },
+      "id": "if-valid",
+      "name": "If Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [640, 300]
     },
     {
       "parameters": {
@@ -38,7 +50,7 @@
       "name": "Insert Bid",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [680, 300],
+      "position": [820, 300],
       "credentials": {
         "postgres": {
           "id": "postgres-bidding",
@@ -179,7 +191,7 @@
       "name": "Error Response",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [680, 480]
+      "position": [820, 480]
     }
   ],
   "connections": {
@@ -198,7 +210,25 @@
       "main": [
         [
           {
+            "node": "If Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Valid": {
+      "main": [
+        [
+          {
             "node": "Insert Bid",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
             "type": "main",
             "index": 0
           }
@@ -275,5 +305,5 @@
     }
   ],
   "triggerCount": 1,
-  "versionId": "1.0.0"
+  "versionId": "1.1.0"
 }

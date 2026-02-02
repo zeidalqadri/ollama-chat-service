@@ -88,14 +88,40 @@
     },
     {
       "parameters": {
+        "jsCode": "// Filter: Only forward successfully stored pending records to WF10\nconst item = $input.first().json;\n\n// Skip failed extractions - they don't have valid data for WF10\nconst status = item.status || 'pending';\nif (status === 'failed_extraction' || status === 'rate_limited') {\n  return [];  // Skip - will still go to Aggregate via merge\n}\n\n// Forward to WF10 for processing\nreturn $input.all();"
+      },
+      "id": "filter-for-wf10",
+      "name": "Filter: For WF10",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/harmony/process",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  raw_tender_id: $json.id,\n  source: $('Validate').first().json.source,\n  source_tender_id: $json.source_tender_id,\n  raw_data: $('Validate').first().json.raw_data || $('Process Troubleshoot').first()?.json?.raw_data\n}) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "call-wf10",
+      "name": "Call WF10",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const items = $input.all();\nconst recovered = items.filter(i => i.json.recovered);\nconst failed = items.filter(i => i.json.status === 'failed_extraction' || i.json.status === 'rate_limited');\n\nreturn [{ json: {\n  success: true,\n  processed: items.length,\n  new_tenders: items.filter(i => i.json.is_new).length,\n  recovered_count: recovered.length,\n  failed_count: failed.length,\n  ids: items.map(i => ({\n    id: i.json.id,\n    tender: i.json.source_tender_id,\n    is_new: i.json.is_new,\n    recovered: i.json.recovered || false\n  }))\n} }];"
+        "jsCode": "const items = $input.all();\nconst recovered = items.filter(i => i.json.recovered);\nconst failed = items.filter(i => i.json.status === 'failed_extraction' || i.json.status === 'rate_limited');\nconst processed = items.filter(i => !i.json.status || i.json.status === 'pending');\n\nreturn [{ json: {\n  success: true,\n  total: items.length,\n  new_tenders: items.filter(i => i.json.is_new).length,\n  sent_to_wf10: processed.length,\n  recovered_count: recovered.length,\n  failed_count: failed.length,\n  ids: items.map(i => ({\n    id: i.json.id,\n    tender: i.json.source_tender_id,\n    is_new: i.json.is_new,\n    recovered: i.json.recovered || false\n  }))\n} }];"
       },
       "id": "aggregate",
       "name": "Aggregate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1560, 300]
+      "position": [2000, 300]
     },
     {
       "parameters": {
@@ -105,7 +131,7 @@
       "name": "Filter: Has Failures",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1780, 300]
+      "position": [2220, 300]
     },
     {
       "parameters": {
@@ -118,7 +144,7 @@
       "name": "Alert: Extraction Failures",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2000, 300],
+      "position": [2440, 300],
       "credentials": {
         "telegramApi": {
           "id": "telegram-bidding-bot",
@@ -140,7 +166,8 @@
     "Filter: Needs Troubleshoot": {"main": [[{"node": "Troubleshoot Extract", "type": "main", "index": 0}]]},
     "Troubleshoot Extract": {"main": [[{"node": "Process Troubleshoot", "type": "main", "index": 0}]]},
     "Process Troubleshoot": {"main": [[{"node": "Store", "type": "main", "index": 0}]]},
-    "Store": {"main": [[{"node": "Aggregate", "type": "main", "index": 0}]]},
+    "Store": {"main": [[{"node": "Filter: For WF10", "type": "main", "index": 0}, {"node": "Aggregate", "type": "main", "index": 0}]]},
+    "Filter: For WF10": {"main": [[{"node": "Call WF10", "type": "main", "index": 0}]]},
     "Aggregate": {"main": [[{"node": "Filter: Has Failures", "type": "main", "index": 0}]]},
     "Filter: Has Failures": {"main": [[{"node": "Alert: Extraction Failures", "type": "main", "index": 0}]]}
   },
@@ -148,5 +175,5 @@
   "staticData": null,
   "tags": [{"name": "harmony-pipeline"}, {"name": "code-filter-pattern"}, {"name": "rate-limited"}],
   "triggerCount": 1,
-  "versionId": "3.0.0"
+  "versionId": "3.1.0"
 }
