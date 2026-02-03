@@ -17,13 +17,28 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst raw = typeof body.raw_data === 'string' ? JSON.parse(body.raw_data) : (body.raw_data || {});\n\n// Parse date from various formats to ISO\nfunction parseDate(dateStr) {\n  if (!dateStr) return null;\n  const str = String(dateStr).trim();\n  \n  // Handle ePerolehan format: \"DD/MM/YYYY HH:MM[:SS] AM/PM\"\n  // e.g., \"03/02/2026 12:00 PM\" or \"03/02/2026 12:00:00 PM\"\n  const eperolehMatch = str.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})\\s+(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(AM|PM)?$/i);\n  if (eperolehMatch) {\n    let [_, day, month, year, hours, mins, secs, ampm] = eperolehMatch;\n    hours = parseInt(hours, 10);\n    secs = secs ? parseInt(secs, 10) : 0;\n    if (ampm) {\n      if (ampm.toUpperCase() === 'PM' && hours < 12) hours += 12;\n      if (ampm.toUpperCase() === 'AM' && hours === 12) hours = 0;\n    }\n    const d = new Date(year, parseInt(month, 10) - 1, parseInt(day, 10), hours, parseInt(mins, 10), secs);\n    return isNaN(d.getTime()) ? null : d.toISOString();\n  }\n  \n  // Handle DD/MM/YYYY (date only)\n  const parts = str.split('/');\n  if (parts.length === 3 && !parts[2].includes(' ')) {\n    const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);\n    return isNaN(d.getTime()) ? null : d.toISOString();\n  }\n  \n  // Try ISO or other standard formats\n  const parsed = new Date(str);\n  return isNaN(parsed.getTime()) ? null : parsed.toISOString();\n}\n\n// Calculate priority score\nconst value = parseFloat(raw.estimated_value) || 0;\nconst deadlineStr = parseDate(raw.closing_date || raw.deadline || raw.submission_deadline);\nconst deadline = deadlineStr ? new Date(deadlineStr) : null;\nconst daysUntil = deadline ? Math.ceil((deadline - new Date()) / (1000*60*60*24)) : 999;\n\nlet score = 0;\nif (value >= 1000000) score += 40;\nelse if (value >= 500000) score += 30;\nelse if (value >= 100000) score += 20;\nelse score += 10;\n\nif (daysUntil <= 3) score += 40;\nelse if (daysUntil <= 7) score += 30;\nelse if (daysUntil <= 14) score += 20;\nelse score += 10;\n\nconst priority = score >= 70 ? 'CRITICAL' : score >= 50 ? 'HIGH' : score >= 30 ? 'MEDIUM' : 'LOW';\n\nreturn [{\n  json: {\n    raw_tender_id: body.raw_tender_id,\n    source: body.source,\n    source_tender_id: body.source_tender_id,\n    title: (raw.title || '').trim(),\n    client_name: (raw.organization || raw.agency || raw.client_name || '').trim(),\n    submission_deadline: deadlineStr,\n    estimated_value: value || null,\n    currency: raw.currency || 'MYR',\n    priority: priority,\n    priority_score: score,\n    days_until_deadline: daysUntil,\n    source_url: raw.source_url || raw.url || null,\n    document_urls: raw.document_urls || [],\n    notes: `Imported from ${body.source} via Harmony Pipeline`\n  }\n}];"
+        "operation": "executeQuery",
+        "query": "SELECT id, source, source_tender_id, raw_data FROM raw_tenders WHERE id = $1::uuid",
+        "options": {
+          "queryReplacement": "={{ [$input.first().json.body?.raw_tender_id || $input.first().json.raw_tender_id] }}"
+        }
+      },
+      "id": "fetch-raw",
+      "name": "Fetch Raw Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [350, 300],
+      "credentials": {"postgres": {"id": "postgres-bidding", "name": "Postgres Bidding DB"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get raw_data from database fetch result\nconst fetched = $input.first().json;\nconst raw = typeof fetched.raw_data === 'string' ? JSON.parse(fetched.raw_data) : (fetched.raw_data || {});\n\n// Parse date from various formats to ISO\nfunction parseDate(dateStr) {\n  if (!dateStr) return null;\n  const str = String(dateStr).trim();\n  \n  // Handle ePerolehan format: \"DD/MM/YYYY HH:MM[:SS] AM/PM\"\n  // e.g., \"03/02/2026 12:00 PM\" or \"03/02/2026 12:00:00 PM\"\n  const eperolehMatch = str.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})\\s+(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(AM|PM)?$/i);\n  if (eperolehMatch) {\n    let [_, day, month, year, hours, mins, secs, ampm] = eperolehMatch;\n    hours = parseInt(hours, 10);\n    secs = secs ? parseInt(secs, 10) : 0;\n    if (ampm) {\n      if (ampm.toUpperCase() === 'PM' && hours < 12) hours += 12;\n      if (ampm.toUpperCase() === 'AM' && hours === 12) hours = 0;\n    }\n    const d = new Date(year, parseInt(month, 10) - 1, parseInt(day, 10), hours, parseInt(mins, 10), secs);\n    return isNaN(d.getTime()) ? null : d.toISOString();\n  }\n  \n  // Handle DD/MM/YYYY (date only)\n  const parts = str.split('/');\n  if (parts.length === 3 && !parts[2].includes(' ')) {\n    const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);\n    return isNaN(d.getTime()) ? null : d.toISOString();\n  }\n  \n  // Try ISO or other standard formats\n  const parsed = new Date(str);\n  return isNaN(parsed.getTime()) ? null : parsed.toISOString();\n}\n\n// Calculate priority score\nconst value = parseFloat(raw.estimated_value) || 0;\nconst deadlineStr = parseDate(raw.closing_date || raw.deadline || raw.submission_deadline);\nconst deadline = deadlineStr ? new Date(deadlineStr) : null;\nconst daysUntil = deadline ? Math.ceil((deadline - new Date()) / (1000*60*60*24)) : 999;\n\nlet score = 0;\nif (value >= 1000000) score += 40;\nelse if (value >= 500000) score += 30;\nelse if (value >= 100000) score += 20;\nelse score += 10;\n\nif (daysUntil <= 3) score += 40;\nelse if (daysUntil <= 7) score += 30;\nelse if (daysUntil <= 14) score += 20;\nelse score += 10;\n\nconst priority = score >= 70 ? 'CRITICAL' : score >= 50 ? 'HIGH' : score >= 30 ? 'MEDIUM' : 'LOW';\n\nreturn [{\n  json: {\n    raw_tender_id: fetched.id,\n    source: fetched.source,\n    source_tender_id: fetched.source_tender_id,\n    title: (raw.title || '').trim(),\n    client_name: (raw.organization || raw.agency || raw.client_name || '').trim(),\n    submission_deadline: deadlineStr,\n    estimated_value: value || null,\n    currency: raw.currency || 'MYR',\n    priority: priority,\n    priority_score: score,\n    days_until_deadline: daysUntil,\n    source_url: raw.source_url || raw.url || null,\n    document_urls: raw.document_urls || [],\n    notes: `Imported from ${fetched.source} via Harmony Pipeline`\n  }\n}];"
       },
       "id": "normalize",
       "name": "Normalize",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300]
+      "position": [570, 300]
     },
     {
       "parameters": {
@@ -128,7 +143,8 @@
     }
   ],
   "connections": {
-    "Webhook": {"main": [[{"node": "Normalize", "type": "main", "index": 0}]]},
+    "Webhook": {"main": [[{"node": "Fetch Raw Data", "type": "main", "index": 0}]]},
+    "Fetch Raw Data": {"main": [[{"node": "Normalize", "type": "main", "index": 0}]]},
     "Normalize": {"main": [[{"node": "Validate", "type": "main", "index": 0}]]},
     "Validate": {"main": [[{"node": "If Valid", "type": "main", "index": 0}]]},
     "If Valid": {
@@ -145,5 +161,5 @@
   "staticData": null,
   "tags": [{"name": "harmony-pipeline"}],
   "triggerCount": 1,
-  "versionId": "3.0.0"
+  "versionId": "3.1.1"
 }
