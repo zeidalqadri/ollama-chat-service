@@ -1,107 +1,127 @@
-# Handoff - TenderBiru Mobile Dashboard UX Design - Feb 3 2026
+# Handoff - TenderBiru Claude-Mem Connection Fix - Feb 3 2026
 
 ## Session Type
 **session-request** | Project: **tenderbiru**
 
 ## Session Stats
-- **Tool calls**: ~3 (WebFetch, Read, Write)
-- **Duration**: ~10 minutes
+- **Tool calls**: ~17 (weighted)
+- **Duration**: ~20 minutes
 - **Context pressure**: LOW (<30%)
-- **Date**: Feb 3, 2026 (late afternoon session)
+- **Date**: Feb 3, 2026 (evening session)
 
 ## Summary
-Designed a comprehensive mobile dashboard UX specification for TenderBiru stakeholders. Used mstprmpt.zeidgeist.com as UI reference (minimalist, high-contrast monochrome, accessibility-first design language).
+Investigated and fixed the claude-mem "script not available" warning. Discovered the memory system was already working correctly - the issue was a missing wrapper script for explicit saves. Created `mem-save.sh` and verified full VPS Chroma connectivity.
 
 ## Current Task
-Created detailed literal UX description for mobile dashboard app covering all stakeholder views (Reviewer, BD Team, Operations, Management).
+Fixed the `/handoff save` command by creating the missing `~/.claude/scripts/mem-save.sh` wrapper script.
 
-## Key Deliverable: Mobile Dashboard UX Spec
+## Progress
 
-### Design Language (from mstprmpt reference)
-- Monochromatic palette: black text on white
-- High contrast for WCAG compliance
-- Safe area awareness for notched devices
-- Touch targets ≥44×44px
-- Functional simplicity over decoration
+### Completed This Session
+1. **Investigated claude-mem architecture** - Discovered it uses:
+   - Local worker service on port 37777
+   - Local SQLite at `~/.claude-mem/claude-mem.db`
+   - Remote Chroma sync to VPS at 45.159.230.42:8000
 
-### Screens Designed
-| Screen | Purpose | Key Elements |
-|--------|---------|--------------|
-| Dashboard | Home/overview | Role selector, 2×2 stats grid, activity feed |
-| Bids List | Browse/filter bids | Filter bar, bid cards with swipe actions |
-| Bid Detail | Single bid view | Hero section, description, action buttons |
-| Pipeline | BD funnel view | Horizontal bar chart, deadline timeline |
-| Operations | System health | Traffic light indicators, error log |
-| Settings | User preferences | Profile, toggles, export actions |
+2. **Verified VPS connectivity** - Settings already configured correctly:
+   ```json
+   {
+     "CLAUDE_MEM_CHROMA_CLIENT_TYPE": "http",
+     "CLAUDE_MEM_CHROMA_HOST": "45.159.230.42",
+     "CLAUDE_MEM_CHROMA_PORT": "8000"
+   }
+   ```
 
-### Key UX Patterns
-- Pull-to-refresh on lists
-- Swipe left for quick actions (Archive, Flag)
-- Long press for multi-select
-- Bottom navigation (4 items)
-- Fixed header with notifications
-- Status dots (Orange=DRAFT, Green=SUBMITTED)
+3. **Created missing wrapper script** - `~/.claude/scripts/mem-save.sh`
+
+4. **Verified data counts**:
+   - Local: 796 observations (tenderbiru project)
+   - VPS Chroma: 75,604 total embeddings
+
+## Key Discoveries
+
+### Claude-Mem Architecture
+```
+Local Machine                           VPS (45.159.230.42)
+─────────────────                       ───────────────────
+
+Claude Code
+    │ (PostToolUse hooks)
+    ▼
+save-hook.js ──────────────────────────► Chroma :8000
+    │                                       │
+    ▼                                       ▼
+SQLite                                  cm__claude-mem
+~/.claude-mem/                          collection
+claude-mem.db
+    │
+    ▼
+Worker :37777
+(viewer UI + API)
+```
+
+### The "Script Not Available" Issue
+- The `/handoff save` command called `~/.claude/scripts/mem-save.sh`
+- This script didn't exist, causing the warning
+- However, memory saves work **automatically** via PostToolUse hooks
+- The script is just for explicit save confirmation
 
 ## Files Modified This Session
+
 | File | Change |
 |------|--------|
-| `handoff/claude.md` | Updated with UX design session |
+| `~/.claude/scripts/mem-save.sh` | **Created** - wrapper for explicit saves |
+| `handoff/claude.md` | Updated with this session |
 
-## No Code Changes
-This session was pure design/documentation work. No code files modified.
+## Commands to Verify
+
+```bash
+# Check worker status
+curl -s http://localhost:37777/health
+
+# Test mem-save script
+~/.claude/scripts/mem-save.sh "Test" "discovery" "Test save"
+
+# Check local observation count
+sqlite3 ~/.claude-mem/claude-mem.db "SELECT COUNT(*) FROM observations WHERE project='tenderbiru';"
+
+# Check VPS Chroma count
+ssh -p 1511 root@45.159.230.42 "curl -s 'http://localhost:8000/api/v2/tenants/default_tenant/databases/default_database/collections/e5beadec-464d-482c-9169-0f8ed0f0dc50/count'"
+
+# View memory UI
+open http://localhost:37777
+```
 
 ## Next Steps (Priority Order)
 
-1. **Implement mobile dashboard** - Use React Native or Flutter based on team preference
-2. **API endpoints** - May need new endpoints for:
-   - `/api/dashboard/stats` - aggregated KPIs
-   - `/api/bids/filter` - filtered bid listings
-   - `/api/system/health` - scraper/workflow status
-3. **Check ePerolehan completion** - Carried over from previous session
-4. **Human review workflow** - 1013 DRAFT bids still awaiting WF02 AI Analysis
+1. **Test `/handoff save git`** - Verify the warning is gone
+2. **Continue mobile dashboard implementation** - From previous session's UX design
+3. **Check ePerolehan scraper status** - Carried over from earlier sessions
+4. **Review DRAFT bids** - 1013 bids awaiting WF02 AI Analysis
 
-## Technical Decisions
+## Technical Notes
 
-| Decision | Rationale |
-|----------|-----------|
-| Role-based views | Different stakeholders need different data density |
-| Bottom nav over hamburger | Mobile-first, thumb-friendly |
-| Monochrome palette | Matches mstprmpt reference, accessibility |
-| Status dots + text | Color-blind accessible |
+### VPS Services
+| Service | Port | Purpose |
+|---------|------|---------|
+| Chroma | 8000 | Vector embeddings storage |
+| n8n | 5678 | Workflow automation |
+| Ollama UI | 8012 | Chat interface |
+| ePerolehan API | 8083 | Scraper service |
+
+### Chroma Collection ID
+UUID: `e5beadec-464d-482c-9169-0f8ed0f0dc50`
+Name: `cm__claude-mem`
 
 ## Previous Session Context
-
-The previous session (Feb 3, afternoon) completed:
-- Full pagination scrape (1000 Zakupsk tenders)
-- WF09→WF10 bug fixes (commits 3215d99, 1cc22d2)
+- Mobile dashboard UX designed (6 screens for all stakeholders)
+- WF09/WF10 bugs fixed and tested
 - 1013 DRAFT bids with 100% data completeness
 - Pipeline fully operational
 
-## Database State (unchanged from previous session)
-| Table | Count |
-|-------|-------|
-| raw_tenders (processed) | 1,013 |
-| bids (DRAFT) | 1,013 |
-| bids (SUBMITTED) | 167 |
-| **Total bids** | **1,180** |
-
-## Commands to Verify System State
-```bash
-# SSH to VPS
-ssh -p 1511 root@45.159.230.42
-
-# Check bid counts
-PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -U alumist -d tenderbiru -h localhost -c \
-  "SELECT status, COUNT(*) FROM bids GROUP BY status;"
-
-# Check services
-curl -s http://localhost:5678/healthz
-curl -s http://localhost:8083/health
-```
-
 ---
-## Session Ended: 2026-02-03 ~16:00 UTC+8
-Tool calls: ~3 (weighted)
+## Session Ended: 2026-02-03 ~18:15 UTC+8
+Tool calls: ~17 (weighted)
 Commits: (pending - this handoff)
 
-_Mobile dashboard UX designed. Pipeline operational. 1013 DRAFT bids ready for review._
+_Claude-mem connection verified and working. Missing wrapper script created._
