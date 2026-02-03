@@ -102,7 +102,7 @@
         "url": "http://localhost:5678/webhook/harmony/process",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  raw_tender_id: $json.id,\n  source: $('Validate').first().json.source,\n  source_tender_id: $json.source_tender_id,\n  raw_data: $('Validate').first().json.raw_data || $('Process Troubleshoot').first()?.json?.raw_data\n}) }}",
+        "jsonBody": "={{ JSON.stringify({ raw_tender_id: $json.id }) }}",
         "options": { "timeout": 30000 }
       },
       "id": "call-wf10",
@@ -175,5 +175,5 @@
   "staticData": null,
   "tags": [{"name": "harmony-pipeline"}, {"name": "code-filter-pattern"}, {"name": "rate-limited"}],
   "triggerCount": 1,
-  "versionId": "3.1.0"
+  "versionId": "3.2.0"
 }
