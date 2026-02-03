@@ -1,111 +1,182 @@
-# Handoff - TenderBiru VPS-Scraper Integration
+# Handoff - TenderBiru Pipeline Integration Complete - Feb 3 2026
+
+## Session Type
+**session-request** | Project: **tenderbiru**
 
 ## Session Stats
-- **Tool calls**: ~80 (extensive SSH operations)
-- **Duration**: ~45 minutes
-- **Context pressure**: LOW (<30%)
-- **Date**: Feb 1, 2026
+- **Tool calls**: ~200+ (extensive SSH, scraper operations, workflow debugging)
+- **Duration**: ~3 hours
+- **Context pressure**: HIGH (nearing limit)
+- **Date**: Feb 3, 2026
 
-## Current Task
-Completed VPS-Scraper to TenderBiru Harmony Pipeline integration for all three tender sources (SmartGEP, ePerolehan, Zakupsk).
+## Summary
+Fixed critical bugs in Harmony Pipeline preventing scraper data from reaching the database. Updated both WF09 (payload format handling) and scraper webhook (to include tender data). Refreshed SmartGEP session via Playwright auto-login. Pipeline now fully operational with 236 DRAFT bids created from scraped data.
 
-## Progress - COMPLETED
+## Key Achievements
 
-### Services Configured
-| Service | Port | Status | Webhook |
-|---------|------|--------|---------|
-| SmartGEP | 8086 | Session valid | `.env` → Harmony |
-| ePerolehan | 8083 | Healthy | `start.sh` wrapper → Harmony |
-| Zakupsk | 8083 | Healthy | Shares ePerolehan API |
+### 1. WF09 Payload Format Fix
+The scraper was sending completion notifications with source nested in `metadata.source`, but WF09 expected `body.source`.
 
-### Database State
-| Source | Pending | Failed | Total |
-|--------|---------|--------|-------|
-| eperolehan | 103 | 1,691 | 1,794 |
-| smartgep | 114 | 24 | 138 |
-| zakupsk | 14 | 0 | 14 |
-| mytender | 1 | 4 | 5 |
+**Before (broken)**:
+```javascript
+const body = $input.first().json.body;
+// Failed because scraper sends: {metadata: {source: "zakupsk"}, ...}
+```
 
-### Key Configuration Changes
+**After (fixed)**:
+```javascript
+const input = $input.first().json;
+const body = input.body || input;
+let source = body.source || (body.metadata && body.metadata.source);
+```
 
-1. **SmartGEP** (`/root/vps-scraper/.env`):
-   ```
-   COMPLETION_WEBHOOK_URL=http://localhost:5678/webhook/harmony/ingest
-   ```
+### 2. Scraper Webhook Enhancement
+Updated `/opt/eperolehan-scraper/api_server.py` to include actual tender data in webhook payload:
+- Added `source` at top level for WF09 compatibility
+- Added `tenders` array by reading from `index.json` output file
+- Increased timeout from 30s to 60s for larger payloads
 
-2. **ePerolehan** (`/opt/eperolehan-scraper/start.sh`):
-   ```bash
-   export N8N_WEBHOOK_URL="http://localhost:5678/webhook/harmony/ingest"
-   export API_PORT=8083
-   export SCRAPER_API_KEY="epfcl6pJLk3ZKzLs2WPhzpVq77lZ/yAvcKSEcXZU0UA="
-   ```
+### 3. SmartGEP Session Refresh
+- Session was 44 hours old (expired)
+- Used `POST http://localhost:8086/extract` endpoint
+- Playwright auto-login successfully extracted 21 cookies
+- Session now healthy
 
-3. **WF09 - Harmony Ingest**: Added `zakupsk` to validSources array in database
+### 4. N8N Workflow Update Method
+**Important**: `n8n import:workflow` does NOT update existing workflows - it creates new ones. Must use direct SQL update via psycopg2:
+```python
+import psycopg2
+conn = psycopg2.connect(host="localhost", database="alumist_n8n", user="alumist", password="...")
+cur = conn.cursor()
+cur.execute("""UPDATE n8n.workflow_entity SET nodes = %s::jsonb WHERE id = %s""",
+    (json.dumps(nodes), workflow_id))
+conn.commit()
+```
+
+## Current Database State
+
+| Table | Source | Status | Count |
+|-------|--------|--------|-------|
+| raw_tenders | zakupsk | processed | 198 |
+| raw_tenders | eperolehan | processed | 3 |
+| bids | harmony | **DRAFT** | **236** |
+| bids | eperolehan | SUBMITTED | 100 |
+| bids | smartgep | SUBMITTED | 52 |
+| bids | zakupsk | SUBMITTED | 12 |
+| bids | webhook | SUBMITTED | 3 |
+| **Total bids** | | | **403** |
+
+## Services Status
+
+| Service | Port | Status |
+|---------|------|--------|
+| n8n | 5678 | ✅ Online |
+| ePerolehan/Zakupsk scraper | 8083 | ✅ Healthy |
+| SmartGEP service | 8086 | ✅ Session healthy (fresh) |
+| Session Health | 8085 | ✅ Available |
+
+## Telegram Commands for SmartGEP Session
+
+The `SmartGEP Session Manager` workflow (ID: k6FaiZZwVC7lCLs3) handles:
+- `/refresh` - Trigger Playwright auto-login
+- `/scrape` - Start SmartGEP scraper
+- `/status` - Check session health
+- `/help` - Show commands
+
+Admin chat ID: 5426763403
+
+## Architecture (Updated)
+
+```
+SmartGEP (8086)  ──┐
+                  ├──> Webhook with {source, tenders: [...]} ──> WF09 (Harmony Ingest)
+ePerolehan (8083) ┤                                                    │
+                  │                                                    ▼
+Zakupsk (8083) ───┘                                              raw_tenders
+                                                                       │
+                                                                   WF10 (Process)
+                                                                       │
+                                                         ┌─────────────┴─────────────┐
+                                                         │                           │
+                                                    Valid data                 Invalid data
+                                                         │                           │
+                                               Insert Bid (DRAFT)          Mark 'invalid'
+                                                         │                           │
+                                               Update raw_tender             error_message
+                                               (bid_id, processed)
+```
+
+## Files Modified This Session
+
+### Local (to commit)
+- `workflows/09-harmony-ingest.json` - Multi-format payload handling
+- `handoff/claude.md` - This handoff document
+
+### VPS Modified
+- `/opt/eperolehan-scraper/api_server.py` - Webhook includes tenders array
+- `n8n.workflow_entity` (WF09) - Updated via SQL for payload format fix
 
 ## Key Decisions
 
-1. **ePerolehan wrapper script**: Created `start.sh` instead of relying on pm2 env vars (pm2 was persisting old Paraty webhook URLs)
+1. **Direct SQL for n8n updates**: n8n CLI import doesn't update existing workflows, must use psycopg2 direct updates
 
-2. **Direct database import for Zakupsk**: WF09 initially rejected zakupsk source, so used direct SQL inserts then updated WF09
+2. **Scraper sends full tender data**: Modified webhook to read index.json and include tenders array, rather than having WF09 fetch from filesystem
 
-3. **WF09 database update**: Modified `n8n.workflow_entity` directly via SQL rather than n8n CLI (CLI was running migrations and couldn't find workflows)
+3. **Session refresh via API**: SmartGEP `/extract` endpoint handles Playwright login - no need for manual browser intervention
 
-## Files Modified
-
-### Local
-- `workflows/09-harmony-ingest.json` - Added 'zakupsk' to validSources
-
-### VPS (`45.159.230.42:1511`)
-- `/root/vps-scraper/.env` - Added COMPLETION_WEBHOOK_URL
-- `/opt/eperolehan-scraper/start.sh` - NEW: Wrapper script with env vars
-- `/opt/eperolehan-scraper/.env` - Created with webhook URL
-- `/opt/eperolehan-scraper/ecosystem.config.cjs` - Created (not actively used)
-- `alumist_n8n.n8n.workflow_entity` - Updated WF09 nodes JSON
-
-## Next Steps
-
-1. **Monitor live scrapes** - Verify webhook callbacks are working for new scrapes
-2. **Investigate failed_extraction records** - 1,691 ePerolehan + 24 SmartGEP failures need review
-3. **WF10 Harmony Process** - Verify downstream processing of new tenders
-
-## Commands to Verify
+## Commands to Verify Pipeline
 
 ```bash
 # SSH to VPS
 ssh -p 1511 root@45.159.230.42
 
 # Check all services
-curl -s http://localhost:5678/healthz  # n8n
-curl -s http://localhost:8086/health   # SmartGEP
-curl -s http://localhost:8083/health   # ePerolehan/Zakupsk
+curl -s http://localhost:5678/healthz                    # n8n
+curl -s http://localhost:8083/health                     # scrapers
+curl -s http://localhost:8086/status | python3 -m json.tool  # SmartGEP
 
-# Check SmartGEP session
-curl -s http://localhost:8086/status | python3 -m json.tool
+# Check database
+PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -U alumist -d tenderbiru -h localhost -c \
+  "SELECT source, status, COUNT(*) FROM raw_tenders GROUP BY source, status;"
 
-# Check database counts
-PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -U alumist -d tenderbiru -h localhost \
-  -c "SELECT source, status, COUNT(*) FROM raw_tenders GROUP BY source, status ORDER BY source;"
+PGPASSWORD='TVw2xISldsFov7O5ksjr7SYYwazR4if' psql -U alumist -d tenderbiru -h localhost -c \
+  "SELECT source, status, COUNT(*) FROM bids GROUP BY source, status;"
 
-# Test webhook with zakupsk
-curl -s -X POST http://localhost:5678/webhook/harmony/ingest \
+# Start scrapes
+curl -X POST http://localhost:8083/api/scrape/start \
+  -H "X-API-Key: epfcl6pJLk3ZKzLs2WPhzpVq77lZ/yAvcKSEcXZU0UA=" \
   -H "Content-Type: application/json" \
-  -d '{"source": "zakupsk", "job_id": "test", "tenders": [{"tender_id": "TEST-001", "title": "Test"}]}'
+  -d '{"source": "eperolehan", "max_pages": 50}'
+
+curl -X POST http://localhost:8083/api/scrape/start \
+  -H "X-API-Key: epfcl6pJLk3ZKzLs2WPhzpVq77lZ/yAvcKSEcXZU0UA=" \
+  -H "Content-Type: application/json" \
+  -d '{"source": "zakupsk", "max_pages": 50}'
+
+# Refresh SmartGEP session (if expired)
+curl -X POST http://localhost:8086/extract -H "Content-Type: application/json" -d '{}'
 ```
 
-## Open Issues
+## Next Steps
 
-1. **SmartGEP live scrape found 0 new items** - May be duplicates or session issue, needs investigation
-2. **ePerolehan scrape not visible in logs** - The test scrape was queued but completion unclear
-3. **Zakupsk webhook not auto-called** - Scraper exports to files but may not be calling webhook on completion
+1. **Run full pagination scrapes** - Now that pipeline works, run larger scrapes (50-100 pages)
+2. **Monitor for errors** - Check n8n execution logs for any remaining issues
+3. **SmartGEP content** - 0 items found in last scrape (may be no open listings currently)
+4. **Consider scheduled scrapes** - Set up cron/n8n triggers for regular scraping
 
-## Architecture Reference
+## Previous Sessions Reference
 
-```
-SmartGEP (8086)  ─┬─► COMPLETION_WEBHOOK_URL ─┐
-                  │                           │
-ePerolehan (8083) ┼─► notify_webhook ─────────┼─► POST /webhook/harmony/ingest
-                  │                           │       ↓
-Zakupsk (8083)   ─┘                           ┘    WF09 → raw_tenders
-                                                      ↓
-                                                   WF10 → processing
-```
+### Session: 2026-02-02
+- Implemented WF10 validation gate and bid creation
+- Database cleanup: deleted 89 test bids
+- Commit: 773b981
+
+### Session: 2026-02-03 (morning)
+- Fixed WF10 date parser for ePerolehan format (optional seconds)
+- Created bids BID-2026-1507 through BID-2026-1509
+
+---
+## Session Ended: 2026-02-03 13:00 UTC+8
+Tool calls: ~200+ (weighted)
+
+_Pipeline fully operational. 236 DRAFT bids created from scraped data._
