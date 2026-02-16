@@ -138,7 +138,8 @@ VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", ...]
 | SSH Port | 22 |
 | App Port | 8012 |
 | Ollama Port | 11434 (localhost only) |
-| Tunnel | borak.zeidgeist.com |
+| Tunnel (main) | borak.roowang.com |
+| Tunnel (backup) | borak.zeidgeist.com |
 
 ## Systemd Services
 
