@@ -41,6 +41,8 @@ except ImportError:
 # =============================================================================
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+VLLM_URL = os.environ.get("VLLM_URL", "http://localhost:8000")  # vLLM OpenAI-compatible server
+VLLM_ENABLED = os.environ.get("VLLM_ENABLED", "false").lower() == "true"
 DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(DATA_DIR, "users.db")
 CHROMA_PATH = os.path.join(DATA_DIR, "chroma_db")
@@ -1344,6 +1346,7 @@ async def get_current_user(request: Request) -> int:
 # =============================================================================
 
 def get_available_models() -> List[str]:
+    """Get models from Ollama (sync, used for background threads)."""
     try:
         with httpx.Client(timeout=5) as client:
             response = client.get(f"{OLLAMA_URL}/api/tags")
@@ -1353,8 +1356,125 @@ def get_available_models() -> List[str]:
         pass
     return [DEFAULT_MODEL]
 
+async def get_all_available_models() -> Dict[str, List[str]]:
+    """Get models from both Ollama and vLLM backends (async)."""
+    ollama_models = []
+    vllm_models = []
+
+    # Get Ollama models
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(f"{OLLAMA_URL}/api/tags")
+            if response.status_code == 200:
+                ollama_models = [m["name"] for m in response.json().get("models", [])]
+    except Exception:
+        pass
+
+    # Get vLLM models if enabled
+    if VLLM_ENABLED:
+        vllm_models = await vllm_list_models()
+
+    return {
+        "ollama": ollama_models or [DEFAULT_MODEL],
+        "vllm": vllm_models,
+        "all": list(set(ollama_models + vllm_models)) or [DEFAULT_MODEL]
+    }
+
 def is_vision_model(model_name: str) -> bool:
     return any(vm in model_name.lower() for vm in VISION_MODELS)
+
+def get_backend_for_model(model_name: str) -> tuple:
+    """
+    Returns (backend_type, base_url) for routing requests.
+    Vision models always go to Ollama, text models go to vLLM when enabled.
+    """
+    if is_vision_model(model_name) or not VLLM_ENABLED:
+        return ("ollama", OLLAMA_URL)
+    return ("vllm", VLLM_URL)
+
+# =============================================================================
+# vLLM Client Functions (OpenAI-compatible API)
+# =============================================================================
+
+async def vllm_list_models() -> List[str]:
+    """Get available models from vLLM server."""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(f"{VLLM_URL}/v1/models")
+            if response.status_code == 200:
+                data = response.json()
+                return [m["id"] for m in data.get("data", [])]
+    except Exception:
+        pass
+    return []
+
+async def vllm_chat_stream(
+    model: str,
+    messages: List[Dict],
+    system_prompt: Optional[str] = None
+):
+    """
+    Stream chat completion from vLLM using OpenAI-compatible format.
+    Yields (content_delta, is_done, usage_dict) tuples.
+    """
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": True
+    }
+    if system_prompt:
+        # Insert system message at the beginning
+        payload["messages"] = [{"role": "system", "content": system_prompt}] + messages
+
+    async with httpx.AsyncClient(timeout=600) as client:
+        async with client.stream("POST", f"{VLLM_URL}/v1/chat/completions", json=payload) as response:
+            if response.status_code != 200:
+                raise Exception(f"vLLM HTTP {response.status_code}")
+
+            async for line in response.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data = line[6:]  # Remove "data: " prefix
+                if data == "[DONE]":
+                    yield ("", True, None)
+                    return
+                try:
+                    chunk = json.loads(data)
+                    choices = chunk.get("choices", [])
+                    if choices:
+                        delta = choices[0].get("delta", {})
+                        content = delta.get("content", "")
+                        finish_reason = choices[0].get("finish_reason")
+                        usage = chunk.get("usage")  # Only present in final chunk
+                        yield (content, finish_reason == "stop", usage)
+                except json.JSONDecodeError:
+                    continue
+
+async def vllm_generate(
+    model: str,
+    prompt: str,
+    temperature: float = 0.3,
+    max_tokens: int = 1500
+) -> Optional[str]:
+    """Non-streaming text generation using vLLM."""
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": False
+    }
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            response = await client.post(f"{VLLM_URL}/v1/completions", json=payload)
+            if response.status_code == 200:
+                data = response.json()
+                choices = data.get("choices", [])
+                if choices:
+                    return choices[0].get("text", "")
+    except Exception:
+        pass
+    return None
 
 # =============================================================================
 # FastAPI App
@@ -1429,12 +1549,15 @@ async def api_me(user_id: int = Depends(get_current_user)):
 
 @app.get("/api/models")
 async def api_models():
-    models = get_available_models()
-    # Enrich with metadata
+    all_models = await get_all_available_models()
+    models = all_models["all"]
+
+    # Enrich with metadata and backend info
     models_with_meta = []
     for model in models:
         # Match by prefix (e.g., "qwen3-coder:30b" or "qwen3-coder")
         base_name = model.split(":")[0] if ":" in model else model
+        backend, _ = get_backend_for_model(model)
         meta = MODEL_METADATA.get(model) or MODEL_METADATA.get(base_name) or {
             "name": model,
             "origin": "🌐",
@@ -1446,6 +1569,7 @@ async def api_models():
         }
         models_with_meta.append({
             "id": model,
+            "backend": backend,
             **meta
         })
     return {
@@ -1454,7 +1578,11 @@ async def api_models():
         "default": DEFAULT_MODEL,
         "vision_models": VISION_MODELS,
         "translation_models": TRANSLATION_MODELS,
-        "model_metadata": MODEL_METADATA
+        "model_metadata": MODEL_METADATA,
+        "backends": {
+            "ollama": {"url": OLLAMA_URL, "models": all_models["ollama"]},
+            "vllm": {"url": VLLM_URL, "enabled": VLLM_ENABLED, "models": all_models["vllm"]}
+        }
     }
 
 # =============================================================================
@@ -1693,52 +1821,75 @@ async def api_chat_send(chat: ChatRequest, user_id: int = Depends(get_current_us
         "msg_id": None
     }
 
+    # Determine which backend to use
+    backend, backend_url = get_backend_for_model(chat.model)
+
     async def generate_stream():
         full_response = ""
         prompt_tokens = 0
         completion_tokens = 0
         msg_id = None
 
-        # First event: session info
-        yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+        # First event: session and backend info
+        yield f"data: {json.dumps({'type': 'session', 'session_id': session_id, 'backend': backend})}\n\n"
 
         try:
-            payload = {"model": chat.model, "messages": messages, "stream": True}
-
-            # Add system prompt if configured
             system_prompt = get_system_prompt_for_model(user_id, chat.model)
-            if system_prompt:
-                payload["system"] = system_prompt
 
-            async with httpx.AsyncClient(timeout=600) as client:
-                async with client.stream("POST", f"{OLLAMA_URL}/api/chat", json=payload) as response:
-                    if response.status_code == 200:
-                        async for line in response.aiter_lines():
-                            # Check for cancellation
-                            if cancel_event.is_set():
-                                # Save partial response
-                                if full_response:
-                                    msg_id = save_message(
-                                        user_id, "assistant", full_response, chat.model,
-                                        session_id, is_partial=True
-                                    )
-                                    active_generations[gen_key]["msg_id"] = msg_id
-                                yield f"data: {json.dumps({'type': 'stopped', 'partial': True})}\n\n"
-                                return
-
-                            if line:
-                                chunk = json.loads(line)
-                                content = chunk.get("message", {}).get("content", "")
-                                if content:
-                                    full_response += content
-                                    active_generations[gen_key]["content"] = full_response
-                                    yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
-                                if chunk.get("done"):
-                                    prompt_tokens = chunk.get("prompt_eval_count", 0)
-                                    completion_tokens = chunk.get("eval_count", 0)
-                    else:
-                        yield f"data: {json.dumps({'type': 'error', 'error': f'HTTP {response.status_code}'})}\n\n"
+            if backend == "vllm":
+                # Use vLLM OpenAI-compatible API
+                async for content, is_done, usage in vllm_chat_stream(chat.model, messages, system_prompt):
+                    if cancel_event.is_set():
+                        if full_response:
+                            msg_id = save_message(
+                                user_id, "assistant", full_response, chat.model,
+                                session_id, is_partial=True
+                            )
+                            active_generations[gen_key]["msg_id"] = msg_id
+                        yield f"data: {json.dumps({'type': 'stopped', 'partial': True})}\n\n"
                         return
+
+                    if content:
+                        full_response += content
+                        active_generations[gen_key]["content"] = full_response
+                        yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
+
+                    if is_done and usage:
+                        prompt_tokens = usage.get("prompt_tokens", 0)
+                        completion_tokens = usage.get("completion_tokens", 0)
+            else:
+                # Use Ollama API
+                payload = {"model": chat.model, "messages": messages, "stream": True}
+                if system_prompt:
+                    payload["system"] = system_prompt
+
+                async with httpx.AsyncClient(timeout=600) as client:
+                    async with client.stream("POST", f"{backend_url}/api/chat", json=payload) as response:
+                        if response.status_code == 200:
+                            async for line in response.aiter_lines():
+                                if cancel_event.is_set():
+                                    if full_response:
+                                        msg_id = save_message(
+                                            user_id, "assistant", full_response, chat.model,
+                                            session_id, is_partial=True
+                                        )
+                                        active_generations[gen_key]["msg_id"] = msg_id
+                                    yield f"data: {json.dumps({'type': 'stopped', 'partial': True})}\n\n"
+                                    return
+
+                                if line:
+                                    chunk = json.loads(line)
+                                    content = chunk.get("message", {}).get("content", "")
+                                    if content:
+                                        full_response += content
+                                        active_generations[gen_key]["content"] = full_response
+                                        yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
+                                    if chunk.get("done"):
+                                        prompt_tokens = chunk.get("prompt_eval_count", 0)
+                                        completion_tokens = chunk.get("eval_count", 0)
+                        else:
+                            yield f"data: {json.dumps({'type': 'error', 'error': f'HTTP {response.status_code}'})}\n\n"
+                            return
         except asyncio.CancelledError:
             # Save partial on cancellation
             if full_response:
@@ -1825,42 +1976,61 @@ async def api_chat_continue(cont: ContinueRequest, user_id: int = Depends(get_cu
         "msg_id": last_msg["id"]
     }
 
+    # Determine backend
+    backend, backend_url = get_backend_for_model(cont.model)
+
     async def generate_stream():
         full_response = last_msg["content"]  # Start from partial
         prompt_tokens = 0
         completion_tokens = 0
 
         try:
-            payload = {"model": cont.model, "messages": messages, "stream": True}
-
-            # Add system prompt if configured
             system_prompt = get_system_prompt_for_model(user_id, cont.model)
-            if system_prompt:
-                payload["system"] = system_prompt
 
-            async with httpx.AsyncClient(timeout=600) as client:
-                async with client.stream("POST", f"{OLLAMA_URL}/api/chat", json=payload) as response:
-                    if response.status_code == 200:
-                        async for line in response.aiter_lines():
-                            if cancel_event.is_set():
-                                # Update partial
-                                update_message(last_msg["id"], full_response, is_partial=True)
-                                yield f"data: {json.dumps({'type': 'stopped', 'partial': True})}\n\n"
-                                return
-
-                            if line:
-                                chunk = json.loads(line)
-                                content = chunk.get("message", {}).get("content", "")
-                                if content:
-                                    full_response += content
-                                    active_generations[gen_key]["content"] = full_response
-                                    yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
-                                if chunk.get("done"):
-                                    prompt_tokens = chunk.get("prompt_eval_count", 0)
-                                    completion_tokens = chunk.get("eval_count", 0)
-                    else:
-                        yield f"data: {json.dumps({'type': 'error', 'error': f'HTTP {response.status_code}'})}\n\n"
+            if backend == "vllm":
+                # Use vLLM OpenAI-compatible API
+                async for content, is_done, usage in vllm_chat_stream(cont.model, messages, system_prompt):
+                    if cancel_event.is_set():
+                        update_message(last_msg["id"], full_response, is_partial=True)
+                        yield f"data: {json.dumps({'type': 'stopped', 'partial': True})}\n\n"
                         return
+
+                    if content:
+                        full_response += content
+                        active_generations[gen_key]["content"] = full_response
+                        yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
+
+                    if is_done and usage:
+                        prompt_tokens = usage.get("prompt_tokens", 0)
+                        completion_tokens = usage.get("completion_tokens", 0)
+            else:
+                # Use Ollama API
+                payload = {"model": cont.model, "messages": messages, "stream": True}
+                if system_prompt:
+                    payload["system"] = system_prompt
+
+                async with httpx.AsyncClient(timeout=600) as client:
+                    async with client.stream("POST", f"{backend_url}/api/chat", json=payload) as response:
+                        if response.status_code == 200:
+                            async for line in response.aiter_lines():
+                                if cancel_event.is_set():
+                                    update_message(last_msg["id"], full_response, is_partial=True)
+                                    yield f"data: {json.dumps({'type': 'stopped', 'partial': True})}\n\n"
+                                    return
+
+                                if line:
+                                    chunk = json.loads(line)
+                                    content = chunk.get("message", {}).get("content", "")
+                                    if content:
+                                        full_response += content
+                                        active_generations[gen_key]["content"] = full_response
+                                        yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
+                                    if chunk.get("done"):
+                                        prompt_tokens = chunk.get("prompt_eval_count", 0)
+                                        completion_tokens = chunk.get("eval_count", 0)
+                        else:
+                            yield f"data: {json.dumps({'type': 'error', 'error': f'HTTP {response.status_code}'})}\n\n"
+                            return
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
             return
@@ -2355,79 +2525,99 @@ async def run_troubleshoot(model: str, stage: str, error_data: Dict, context: Op
     except KeyError as e:
         prompt = prompt_template  # Use raw if format fails
 
-    # Call Ollama
+    # Route to appropriate backend
+    backend, backend_url = get_backend_for_model(model)
+
     try:
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": 0.3,
-                "num_predict": 1500
-            }
-        }
+        raw_response = None
 
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(f"{OLLAMA_URL}/api/generate", json=payload)
-
-            if response.status_code == 200:
-                result = response.json()
-                raw_response = result.get("response", "{}")
-
-                # Try to parse JSON from response
-                try:
-                    json_match = re.search(r'\{[\s\S]*\}', raw_response)
-                    if json_match:
-                        parsed = json.loads(json_match.group(0))
-
-                        # Handle analyze stage differently - scores are at top level
-                        if stage == "analyze" and "completeness_score" in parsed:
-                            return {
-                                "success": True,
-                                "recovered": True,
-                                "recovered_data": {
-                                    "completeness_score": parsed.get("completeness_score", 50),
-                                    "win_probability": parsed.get("win_probability", 50),
-                                    "risk_score": parsed.get("risk_score", 50)
-                                },
-                                "diagnosis": parsed.get("diagnosis", "Fallback analysis complete"),
-                                "action_taken": f"Troubleshoot via {model}",
-                                "confidence": 0.7,
-                                "needs_manual": False
-                            }
-
-                        return {
-                            "success": True,
-                            "recovered": parsed.get("recoverable", False),
-                            "recovered_data": parsed.get("extracted", parsed.get("suggested_corrections", {})),
-                            "diagnosis": parsed.get("diagnosis", "Analysis complete"),
-                            "action_taken": f"Troubleshoot via {model}",
-                            "confidence": parsed.get("confidence", 0.5),
-                            "needs_manual": not parsed.get("recoverable", False)
-                        }
-                except json.JSONDecodeError:
-                    pass
-
-                # Fallback if JSON parsing fails
-                return {
-                    "success": True,
-                    "recovered": False,
-                    "recovered_data": None,
-                    "diagnosis": raw_response[:500],
-                    "action_taken": f"Troubleshoot via {model} (unparseable response)",
-                    "confidence": 0.0,
-                    "needs_manual": True
-                }
-            else:
+        if backend == "vllm":
+            # Use vLLM completions API
+            raw_response = await vllm_generate(model, prompt, temperature=0.3, max_tokens=1500)
+            if raw_response is None:
                 return {
                     "success": False,
                     "recovered": False,
                     "recovered_data": None,
-                    "diagnosis": f"Model request failed: HTTP {response.status_code}",
-                    "action_taken": "None - model unavailable",
+                    "diagnosis": "vLLM request failed",
+                    "action_taken": "None - vLLM unavailable",
                     "confidence": 0.0,
                     "needs_manual": True
                 }
+        else:
+            # Use Ollama generate API
+            payload = {
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.3,
+                    "num_predict": 1500
+                }
+            }
+
+            async with httpx.AsyncClient(timeout=120) as client:
+                response = await client.post(f"{backend_url}/api/generate", json=payload)
+
+                if response.status_code == 200:
+                    result = response.json()
+                    raw_response = result.get("response", "{}")
+                else:
+                    return {
+                        "success": False,
+                        "recovered": False,
+                        "recovered_data": None,
+                        "diagnosis": f"Model request failed: HTTP {response.status_code}",
+                        "action_taken": "None - model unavailable",
+                        "confidence": 0.0,
+                        "needs_manual": True
+                    }
+
+        # Parse response (common to both backends)
+        if raw_response:
+            try:
+                json_match = re.search(r'\{[\s\S]*\}', raw_response)
+                if json_match:
+                    parsed = json.loads(json_match.group(0))
+
+                    # Handle analyze stage differently - scores are at top level
+                    if stage == "analyze" and "completeness_score" in parsed:
+                        return {
+                            "success": True,
+                            "recovered": True,
+                            "recovered_data": {
+                                "completeness_score": parsed.get("completeness_score", 50),
+                                "win_probability": parsed.get("win_probability", 50),
+                                "risk_score": parsed.get("risk_score", 50)
+                            },
+                            "diagnosis": parsed.get("diagnosis", "Fallback analysis complete"),
+                            "action_taken": f"Troubleshoot via {model} ({backend})",
+                            "confidence": 0.7,
+                            "needs_manual": False
+                        }
+
+                    return {
+                        "success": True,
+                        "recovered": parsed.get("recoverable", False),
+                        "recovered_data": parsed.get("extracted", parsed.get("suggested_corrections", {})),
+                        "diagnosis": parsed.get("diagnosis", "Analysis complete"),
+                        "action_taken": f"Troubleshoot via {model} ({backend})",
+                        "confidence": parsed.get("confidence", 0.5),
+                        "needs_manual": not parsed.get("recoverable", False)
+                    }
+            except json.JSONDecodeError:
+                pass
+
+            # Fallback if JSON parsing fails
+            return {
+                "success": True,
+                "recovered": False,
+                "recovered_data": None,
+                "diagnosis": raw_response[:500],
+                "action_taken": f"Troubleshoot via {model} ({backend}, unparseable response)",
+                "confidence": 0.0,
+                "needs_manual": True
+            }
     except Exception as e:
         return {
             "success": False,
@@ -2509,7 +2699,32 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "chroma": CHROMA_AVAILABLE}
+    """Health check with backend status."""
+    backends = {"ollama": False, "vllm": False}
+
+    # Check Ollama
+    try:
+        async with httpx.AsyncClient(timeout=2) as client:
+            resp = await client.get(f"{OLLAMA_URL}/api/tags")
+            backends["ollama"] = resp.status_code == 200
+    except Exception:
+        pass
+
+    # Check vLLM (if enabled)
+    if VLLM_ENABLED:
+        try:
+            async with httpx.AsyncClient(timeout=2) as client:
+                resp = await client.get(f"{VLLM_URL}/v1/models")
+                backends["vllm"] = resp.status_code == 200
+        except Exception:
+            pass
+
+    return {
+        "status": "ok",
+        "chroma": CHROMA_AVAILABLE,
+        "backends": backends,
+        "vllm_enabled": VLLM_ENABLED
+    }
 
 # =============================================================================
 # Run
