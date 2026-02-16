@@ -1,72 +1,92 @@
 # Handoff - Session Summary
 
 ## Session Stats
-- Tool calls: ~35
-- Duration: ~20 minutes
+- Tool calls: ~30
+- Duration: ~15 minutes
 - Context pressure: 🟢 LOW
-- Date: Jan 30, 2026
+- Date: Feb 16, 2026
 
 ## Completed This Session
 
-### 1. TenderBiru Consolidation
-Renamed `n8n-bidding-system/` to `tenderbiru/` and moved all related docs:
-- `dev/active/tenderbiru-*.md` → `tenderbiru/docs/`
-- `dev-docs/handoff-session{6,7,8,9}.md` → `tenderbiru/docs/handoffs/`
-- Updated README.md with new structure
-- Committed and pushed as `e01705b`
+### 1. Removed vLLM, Simplified to Ollama-Only
+- vLLM code was already removed from `main.py` (confirmed 0 references)
+- Updated CLAUDE.md to reflect Ollama-only architecture
+- Removed vLLM environment variables and setup docs
 
-### 2. jsonderulo npm Package
-Created and published a Node.js CLI JSON viewer based on `jsonderulo.txt`:
+### 2. Systemd Services Configured
+Created and deployed service files:
+- `systemd/borak.service` - BORAK FastAPI on port 8012
+- `systemd/cloudflared.service` - Cloudflare tunnel (not installed via systemd)
 
-**Package:** `@gooodboy/jsonderulo@1.0.0`
+### 3. Deployment Scripts Created
+- `deploy-gpu-vps.sh` - GPU VPS deployment (192.168.0.251)
+- `deploy-new-vps.sh` - Fresh VPS migration script
 
-**Install:**
-```bash
-npm install -g @gooodboy/jsonderulo
-jsonderulo myfile.json
-```
+### 4. VPS Services Running
+| Service | Status | Method |
+|---------|--------|--------|
+| BORAK | Active | systemd |
+| Ollama | Active | systemd |
+| Cloudflared | Running | Manual + cron @reboot |
 
-**Features:**
-- Zero dependencies (Node.js built-ins only)
-- Colorized tree view with type-aware formatting
-- Interactive file selection mode
-- Works globally via `jsonderulo` command
-
-**Files created:**
-```
-jsonderulo/
-├── package.json    # npm config with bin entry
-├── bin/cli.js      # CLI entry point (ES modules)
-└── README.md       # Documentation
-```
+### 5. Cloudflared Tunnel Working
+- Tunnel ID: `674690a0-0ebc-4a06-9ab4-238940a0fb1f`
+- Public URL: https://borak.zeidgeist.com
+- Added `@reboot` cron job for auto-start
 
 ## Key Decisions
 
-1. **Scoped npm name** - `jsonderulo` was too similar to existing `json-derulo`, so published as `@gooodboy/jsonderulo`
+1. **Ollama-only** - Removed vLLM hybrid backend for simplicity. Ollama handles all models.
 
-2. **Zero dependencies** - Used only Node.js built-ins (fs, path, readline) for simplicity
+2. **Manual cloudflared** - User `the_bomb` lacks passwordless sudo, so cloudflared runs via cron instead of systemd.
 
-3. **ES modules** - Used `"type": "module"` for modern import/export syntax
+3. **New VPS IP** - Migrated from 45.159.230.42 to 192.168.0.251 (GPU VPS)
 
-## Next Steps
+## VPS Info
 
-1. No immediate action needed - both tasks complete
-2. Consider adding more features to jsonderulo (search, edit, etc.) if desired
+| Property | Value |
+|----------|-------|
+| Host | 192.168.0.251 |
+| User | the_bomb |
+| SSH Port | 22 |
+| Tunnel | borak.zeidgeist.com |
 
-## Files to Commit
+## Files Modified
 
-```
-jsonderulo/           # New npm package (published)
-jsonderulo.txt        # Source reference file
-```
+| File | Change |
+|------|--------|
+| `CLAUDE.md` | Removed vLLM docs, updated architecture |
+| `systemd/borak.service` | New - BORAK systemd service |
+| `systemd/cloudflared.service` | New - Cloudflare tunnel service |
+| `deploy-gpu-vps.sh` | New - GPU VPS deployment |
+| `deploy-new-vps.sh` | New - Fresh VPS migration |
 
 ## Commands to Verify
 
 ```bash
-# Test jsonderulo
-jsonderulo --help
-jsonderulo package.json
+# Check services on VPS
+ssh the_bomb@192.168.0.251 "systemctl is-active borak ollama"
 
-# Check npm package
-npm view @gooodboy/jsonderulo
+# Test tunnel
+curl -s https://borak.zeidgeist.com/health | jq
+
+# View BORAK logs
+ssh the_bomb@192.168.0.251 "journalctl -u borak -f"
+
+# View cloudflared logs
+ssh the_bomb@192.168.0.251 "cat /tmp/cloudflared.log | tail -20"
 ```
+
+## Next Steps
+
+1. No immediate action needed - deployment complete
+2. Consider adding systemd service for cloudflared if user gets sudo access
+3. Test image upload/OCR functionality via tunnel
+
+## Git Status
+
+- Commit: `3c887c6` - refactor(deploy): remove vLLM, add systemd services
+- Pushed: ✓ origin/master
+
+---
+_Run /session-save before next clear to preserve important context._
