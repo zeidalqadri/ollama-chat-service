@@ -1,0 +1,13 @@
+[Unit]
+Description=Cloudflare Tunnel
+After=network.target
+
+[Service]
+Type=simple
+User=the_bomb
+ExecStart=/home/the_bomb/bin/cloudflared tunnel --config /home/the_bomb/.cloudflared/config.json run gpu-vps
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

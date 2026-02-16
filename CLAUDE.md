@@ -5,50 +5,72 @@
 # Development
 uvicorn main:app --reload --port 8012
 
-# Production
-uvicorn main:app --host 0.0.0.0 --port 8012
+# Production (use systemd)
+sudo systemctl start borak
 
 # Check health
-curl -s http://45.159.230.42:8012/health
+curl -s http://192.168.0.251:8012/health
 
 # Deploy changes
-scp -P 1511 main.py static/* root@45.159.230.42:/opt/ollama-ui/
+scp -P 22 main.py static/* the_bomb@192.168.0.251:/opt/ollama-ui/
+sudo systemctl restart borak
 ```
 
 ## Architecture
+
+### Ollama Backend
+
 ```
-+---------------------------------------------------------+
-|                    Browser (index.html)                  |
-|  +-------------+  +-------------+  +-----------------+  |
-|  | Login Page  |  |  Chat Page  |  |  Canvas Panel   |  |
-|  +-------------+  +-------------+  +-----------------+  |
-+--------------------------+------------------------------+
-                           | HTTP/SSE
-+--------------------------+------------------------------+
-|                  FastAPI Backend (main.py)               |
-|  +----------+  +----------+  +----------+  +---------+  |
-|  |  Auth    |  |  Chat    |  |  Models  |  | Stream  |  |
-|  |  Routes  |  |  Routes  |  |  Routes  |  |  (SSE)  |  |
-|  +----------+  +----------+  +----------+  +---------+  |
-+--------------------------+------------------------------+
-                           |
-+--------------------------+------------------------------+
-|                    Data Layer                            |
-|  +----------+  +----------+  +----------------------+   |
-|  |  SQLite  |  | ChromaDB |  |  Ollama API          |   |
-|  | (users)  |  | (history)|  |  localhost:11434     |   |
-|  +----------+  +----------+  +----------------------+   |
-+---------------------------------------------------------+
+┌─────────────────────────────────────────────────────────┐
+│                    Browser (index.html)                  │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │
+│  │ Login Page  │  │  Chat Page  │  │  Canvas Panel   │  │
+│  └─────────────┘  └─────────────┘  └─────────────────┘  │
+└──────────────────────────┬──────────────────────────────┘
+                           │ HTTP/SSE
+┌──────────────────────────┴──────────────────────────────┐
+│                  FastAPI Backend (main.py)               │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │              Ollama Client                        │   │
+│  │  - All models via Ollama API                     │   │
+│  │  - Vision models auto-detected                   │   │
+│  └──────────────────────────────────────────────────┘   │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+                          ▼
+              ┌─────────────────────┐
+              │       Ollama        │
+              │    Port 11434       │
+              │ ─────────────────── │
+              │ qwen3-coder:30b     │
+              │ guardpoint:latest   │
+              │ deepseek-ocr        │
+              │ translategemma      │
+              └─────────────────────┘
+```
+
+### Data Layer
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Data Layer                            │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐   │
+│  │  SQLite  │  │ ChromaDB │  │  Ollama              │   │
+│  │ (users)  │  │ (history)│  │  (LLM inference)     │   │
+│  └──────────┘  └──────────┘  └──────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ## Key Files
 | File | Purpose |
 |------|---------|
-| `main.py` | FastAPI backend (~500 lines) - Auth, Chat, SSE streaming |
+| `main.py` | FastAPI backend - Auth, Chat, SSE streaming |
 | `static/index.html` | Single-page app - Login/Chat views |
 | `static/style.css` | Cypherpunk terminal theme |
 | `static/app.js` | Client-side logic - Auth, streaming, UI |
-| `app_streamlit.py` | Legacy Streamlit version (reference) |
+| `systemd/borak.service` | Systemd service for BORAK |
+| `systemd/cloudflared.service` | Cloudflare tunnel service |
+| `deploy-gpu-vps.sh` | GPU VPS deployment script |
 | `users.db` | User database (gitignored) |
 | `chroma_db/` | Vector store for chat history |
 
@@ -91,8 +113,6 @@ Features:
 - Structured diagnostic output
 - Differential diagnosis support
 
-⚠️ **Disclaimer**: Not a substitute for professional medical advice.
-
 ### Vision Models
 Vision-capable models are auto-detected by name pattern:
 ```python
@@ -110,12 +130,41 @@ VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", ...]
 ```
 
 ## VPS Info
+
 | Property | Value |
 |----------|-------|
-| IP | 45.159.230.42 |
-| SSH Port | **1511** (not 22!) |
+| Host | 192.168.0.251 (GPU VPS) |
+| User | the_bomb |
+| SSH Port | 22 |
 | App Port | 8012 |
 | Ollama Port | 11434 (localhost only) |
+| Tunnel | borak.zeidgeist.com |
+
+## Systemd Services
+
+### Install Services
+```bash
+# Copy service files
+sudo cp systemd/borak.service /etc/systemd/system/
+sudo cp systemd/cloudflared.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# Enable and start
+sudo systemctl enable borak ollama cloudflared
+sudo systemctl start borak ollama cloudflared
+```
+
+### Service Management
+```bash
+# Check status
+systemctl status borak ollama cloudflared
+
+# View logs
+journalctl -u borak -f
+
+# Restart after code changes
+sudo systemctl restart borak
+```
 
 ## Environment Variables
 | Variable | Default | Description |
@@ -129,9 +178,24 @@ VISION_MODELS = ["deepseek-ocr", "qwen3-vl", "llava", "moondream", ...]
 ## Cookie Security
 The `secure` flag in `response.set_cookie()` must match your deployment:
 - **HTTP**: `secure=False` (development, local testing)
-- **HTTPS**: `secure=True` (production)
+- **HTTPS**: `secure=True` (production via Cloudflare tunnel)
 
-If cookies aren't being set (401 errors on all API calls after login), check this setting in `main.py` line ~1102.
+If cookies aren't being set (401 errors on all API calls after login), check this setting in `main.py`.
+
+## Deployment
+
+### Quick Deploy (after code changes)
+```bash
+# From local machine
+scp -P 22 main.py static/* the_bomb@192.168.0.251:/opt/ollama-ui/
+ssh the_bomb@192.168.0.251 "sudo systemctl restart borak"
+```
+
+### Full Deploy (fresh VPS)
+```bash
+# Run the deployment script
+./deploy-gpu-vps.sh
+```
 
 ## Migration from Streamlit
 The app was migrated from Streamlit to FastAPI to eliminate DOM ghost issues.
@@ -141,5 +205,3 @@ Key changes:
 - `st.chat_input()` -> HTML textarea + JS handler
 - `st.rerun()` -> Event-driven (no longer needed)
 - Streaming via `st.write_stream()` -> Server-Sent Events (SSE)
-
-Legacy Streamlit code preserved in `app_streamlit.py` for reference.
